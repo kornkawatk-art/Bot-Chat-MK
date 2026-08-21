@@ -48,6 +48,16 @@ describe("parseFaqCsv", () => {
   it("returns an empty array for an empty CSV", () => {
     expect(parseFaqCsv("")).toEqual([]);
   });
+
+  it("falls back to positional columns (category, question, answer, updated_at) when the header isn't in English", () => {
+    const csv = "หมวด,คำถาม,คำตอบ\nที่อยู่,ที่อยู่,86/9 ม.2 ต.บางริ้น อ.เมือง จ.ระนอง";
+
+    const result = parseFaqCsv(csv);
+
+    expect(result).toEqual([
+      { category: "ที่อยู่", question: "ที่อยู่", answer: "86/9 ม.2 ต.บางริ้น อ.เมือง จ.ระนอง" },
+    ]);
+  });
 });
 
 describe("formatFaqCsv", () => {

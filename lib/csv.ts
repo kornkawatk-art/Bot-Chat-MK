@@ -56,10 +56,20 @@ export function parseFaqCsv(csv: string): FaqRow[] {
   if (rows.length === 0) return [];
 
   const header = rows[0].map((h) => h.trim().toLowerCase());
-  const categoryIdx = header.indexOf("category");
-  const questionIdx = header.indexOf("question");
-  const answerIdx = header.indexOf("answer");
-  const updatedAtIdx = header.indexOf("updated_at");
+  let categoryIdx = header.indexOf("category");
+  let questionIdx = header.indexOf("question");
+  let answerIdx = header.indexOf("answer");
+  let updatedAtIdx = header.indexOf("updated_at");
+
+  // Real-world sheets are often maintained by non-technical staff who rename the
+  // header row into their own language. When we can't recognize question/answer by
+  // name, fall back to the documented column order: category, question, answer, updated_at.
+  if (questionIdx === -1 || answerIdx === -1) {
+    categoryIdx = 0;
+    questionIdx = 1;
+    answerIdx = 2;
+    updatedAtIdx = 3;
+  }
 
   const result: FaqRow[] = [];
   for (const cols of rows.slice(1)) {
