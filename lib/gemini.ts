@@ -2,7 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import type { GeminiResult } from "../types";
 import { NO_ANSWER_REPLY } from "./replies";
 
-const MODEL = "gemini-3.5-flash";
+const MODEL = "gemini-3.5-flash-lite";
 
 /** Builds the system prompt. <faq> must precede <question> (context before task, and to keep the FAQ near the end of the static prefix for prompt caching). */
 export function buildPrompt(faqCsv: string, question: string): string {

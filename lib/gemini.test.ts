@@ -44,7 +44,7 @@ describe("askGemini", () => {
     return { models: { generateContent: vi.fn().mockResolvedValue(response) } };
   }
 
-  it("calls gemini-3.5-flash with temperature 1.0 and maxOutputTokens 1024", async () => {
+  it("calls gemini-3.5-flash-lite with temperature 1.0 and maxOutputTokens 1024", async () => {
     const client = fakeClient({
       text: "hello",
       candidates: [{ finishReason: "STOP" }],
@@ -54,7 +54,7 @@ describe("askGemini", () => {
     await askGemini("some prompt", client);
 
     expect(client.models.generateContent).toHaveBeenCalledWith({
-      model: "gemini-3.5-flash",
+      model: "gemini-3.5-flash-lite",
       contents: "some prompt",
       config: expect.objectContaining({ temperature: 1.0, maxOutputTokens: 1024 }),
     });
