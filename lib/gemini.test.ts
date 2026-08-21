@@ -30,6 +30,13 @@ describe("buildPrompt", () => {
 
     expect(prompt).toContain(NO_ANSWER_REPLY);
   });
+
+  it("permits rephrasing FAQ answers into natural sentences instead of copying them verbatim", () => {
+    const prompt = buildPrompt("faq-content", "question-content");
+
+    expect(prompt).toContain("ปรับถ้อยคำ");
+    expect(prompt).not.toContain("ตอบให้กระชับที่สุดเท่าที่จะทำได้");
+  });
 });
 
 describe("askGemini", () => {
