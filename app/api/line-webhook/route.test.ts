@@ -11,10 +11,14 @@ vi.mock("../../../lib/gemini", () => ({
   askGemini: vi.fn(),
   buildPrompt: vi.fn((faqCsv: string, question: string) => `PROMPT(${faqCsv})(${question})`),
 }));
+vi.mock("../../../lib/admin-notify", () => ({
+  notifyAdmin: vi.fn(),
+}));
 
+import { notifyAdmin } from "../../../lib/admin-notify";
 import { askGemini } from "../../../lib/gemini";
 import { replyText, verifySignature } from "../../../lib/line";
-import { DEFAULT_REPLY } from "../../../lib/replies";
+import { DEFAULT_REPLY, NO_ANSWER_REPLY } from "../../../lib/replies";
 import { getFaq } from "../../../lib/sheet";
 import { POST } from "./route";
 
@@ -22,6 +26,7 @@ const mockedVerifySignature = vi.mocked(verifySignature);
 const mockedReplyText = vi.mocked(replyText);
 const mockedGetFaq = vi.mocked(getFaq);
 const mockedAskGemini = vi.mocked(askGemini);
+const mockedNotifyAdmin = vi.mocked(notifyAdmin);
 
 function messageEvent(text: string, replyToken = "reply-1") {
   return {
@@ -108,7 +113,7 @@ describe("POST /api/line-webhook", () => {
     expect(mockedReplyText).toHaveBeenCalledWith("reply-1", DEFAULT_REPLY);
   });
 
-  it("ignores non-text message events without replying", async () => {
+  it("replies with the fallback and notifies admin (with a placeholder) for non-text message events", async () => {
     mockedVerifySignature.mockReturnValue(true);
 
     const res = await POST(
@@ -116,6 +121,71 @@ describe("POST /api/line-webhook", () => {
     );
 
     expect(res.status).toBe(200);
-    expect(mockedReplyText).not.toHaveBeenCalled();
+    expect(mockedReplyText).toHaveBeenCalledWith("reply-1", NO_ANSWER_REPLY);
+    expect(mockedNotifyAdmin).toHaveBeenCalledWith("[ลูกค้าส่งสติกเกอร์มา]", "U123");
+    expect(mockedAskGemini).not.toHaveBeenCalled();
+  });
+
+  it("notifies admin when Gemini gives the exact no-FAQ-match reply", async () => {
+    mockedVerifySignature.mockReturnValue(true);
+    mockedAskGemini.mockResolvedValue({
+      text: NO_ANSWER_REPLY,
+      finishReason: "STOP",
+      thoughtsTokenCount: 1,
+      candidatesTokenCount: 2,
+    });
+
+    await POST(request([messageEvent("ราคาสินค้า X เท่าไหร่")]));
+
+    expect(mockedNotifyAdmin).toHaveBeenCalledWith("ราคาสินค้า X เท่าไหร่", "U123");
+  });
+
+  it("does not notify admin for a normal FAQ-backed answer", async () => {
+    mockedVerifySignature.mockReturnValue(true);
+    mockedAskGemini.mockResolvedValue({
+      text: "เปิด 06:00-22:00 ค่ะ",
+      finishReason: "STOP",
+      thoughtsTokenCount: 1,
+      candidatesTokenCount: 2,
+    });
+
+    await POST(request([messageEvent("เปิดกี่โมง")]));
+
+    expect(mockedNotifyAdmin).not.toHaveBeenCalled();
+  });
+
+  it("does not notify admin for MAX_TOKENS or system-error fallbacks", async () => {
+    mockedVerifySignature.mockReturnValue(true);
+    mockedAskGemini.mockResolvedValue({
+      text: "ตัดข้อความ...",
+      finishReason: "MAX_TOKENS",
+      thoughtsTokenCount: 1,
+      candidatesTokenCount: 2,
+    });
+
+    await POST(request([messageEvent("เปิดกี่โมง")]));
+
+    expect(mockedNotifyAdmin).not.toHaveBeenCalled();
+  });
+
+  it("replies with the group id when the bot is added to a group", async () => {
+    mockedVerifySignature.mockReturnValue(true);
+
+    const res = await POST(
+      request([
+        {
+          type: "join",
+          replyToken: "reply-join",
+          timestamp: 0,
+          mode: "active",
+          webhookEventId: "wh2",
+          deliveryContext: { isRedelivery: false },
+          source: { type: "group", groupId: "C123456" },
+        },
+      ]),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockedReplyText).toHaveBeenCalledWith("reply-join", expect.stringContaining("C123456"));
   });
 });

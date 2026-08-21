@@ -10,6 +10,14 @@ interface ReplyClient {
   replyMessage: (params: { replyToken: string; messages: Array<{ type: "text"; text: string }> }) => Promise<unknown>;
 }
 
+interface PushClient {
+  pushMessage: (params: { to: string; messages: Array<{ type: "text"; text: string }> }) => Promise<unknown>;
+}
+
+interface ProfileClient {
+  getProfile: (userId: string) => Promise<{ userId: string; displayName: string }>;
+}
+
 let defaultClient: messagingApi.MessagingApiClient | null = null;
 function getDefaultClient(): messagingApi.MessagingApiClient {
   if (!defaultClient) {
@@ -26,4 +34,16 @@ export async function replyText(
   client: ReplyClient = getDefaultClient(),
 ): Promise<void> {
   await client.replyMessage({ replyToken, messages: [{ type: "text", text }] });
+}
+
+/** Pushes a single text message to a user, group, or room id (unprompted, unlike replyText). */
+export async function pushText(to: string, text: string, client: PushClient = getDefaultClient()): Promise<void> {
+  await client.pushMessage({ to, messages: [{ type: "text", text }] });
+}
+
+export async function getProfile(
+  userId: string,
+  client: ProfileClient = getDefaultClient(),
+): Promise<{ userId: string; displayName: string }> {
+  return client.getProfile(userId);
 }

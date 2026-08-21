@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { replyText, verifySignature } from "./line";
+import { getProfile, pushText, replyText, verifySignature } from "./line";
 
 const SECRET = "test-channel-secret";
 
@@ -37,5 +37,30 @@ describe("replyText", () => {
       replyToken: "reply-token-123",
       messages: [{ type: "text", text: "สวัสดีค่ะ" }],
     });
+  });
+});
+
+describe("pushText", () => {
+  it("sends a single text message to the given target id", async () => {
+    const client = { pushMessage: vi.fn().mockResolvedValue({}) };
+
+    await pushText("group-123", "แจ้งเตือนค่ะ", client);
+
+    expect(client.pushMessage).toHaveBeenCalledWith({
+      to: "group-123",
+      messages: [{ type: "text", text: "แจ้งเตือนค่ะ" }],
+    });
+  });
+});
+
+describe("getProfile", () => {
+  it("returns the profile for the given userId", async () => {
+    const profile = { userId: "U123", displayName: "สมชาย" };
+    const client = { getProfile: vi.fn().mockResolvedValue(profile) };
+
+    const result = await getProfile("U123", client);
+
+    expect(client.getProfile).toHaveBeenCalledWith("U123");
+    expect(result).toEqual(profile);
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { askGemini, buildPrompt } from "./gemini";
+import { NO_ANSWER_REPLY } from "./replies";
 
 describe("buildPrompt", () => {
   it("embeds the FAQ CSV and the question inside the system prompt", () => {
@@ -22,6 +23,12 @@ describe("buildPrompt", () => {
     expect(prompt).toContain("<constraints>");
     expect(prompt).toContain("<output_format>");
     expect(prompt).toContain("แม็คโคร สาขาระนอง");
+  });
+
+  it("instructs the model to reply with the exact NO_ANSWER_REPLY text when the FAQ has no match", () => {
+    const prompt = buildPrompt("faq-content", "question-content");
+
+    expect(prompt).toContain(NO_ANSWER_REPLY);
   });
 });
 
