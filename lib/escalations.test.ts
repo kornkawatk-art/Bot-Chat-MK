@@ -33,7 +33,7 @@ describe("recordEscalation", () => {
   it("stores the escalation and tracks it as pending", async () => {
     const redis = fakeRedis();
 
-    await recordEscalation("เปิดกี่โมง", "U123", "msg-1", { redis, now: () => 1000 });
+    await recordEscalation("เปิดกี่โมง", "U123", "สมชาย", "msg-1", { redis, now: () => 1000 });
 
     const ids = await redis.sMembers("escalations:pending");
     expect(ids).toHaveLength(1);
@@ -44,6 +44,7 @@ describe("recordEscalation", () => {
       lastAlertAt: 1000,
       question: "เปิดกี่โมง",
       userId: "U123",
+      customerName: "สมชาย",
     });
   });
 
@@ -51,14 +52,14 @@ describe("recordEscalation", () => {
     const redis = fakeRedis();
     redis.sAdd.mockRejectedValue(new Error("down"));
 
-    await expect(recordEscalation("q", "U1", "msg-1", { redis, now: () => 0 })).resolves.toBeUndefined();
+    await expect(recordEscalation("q", "U1", "ลูกค้า", "msg-1", { redis, now: () => 0 })).resolves.toBeUndefined();
   });
 });
 
 describe("acknowledgeEscalation", () => {
   it("removes and returns true when a pending escalation matches the message id", async () => {
     const redis = fakeRedis();
-    await recordEscalation("เปิดกี่โมง", "U123", "msg-1", { redis, now: () => 0 });
+    await recordEscalation("เปิดกี่โมง", "U123", "สมชาย", "msg-1", { redis, now: () => 0 });
 
     const acked = await acknowledgeEscalation("msg-1", { redis });
 
@@ -68,7 +69,7 @@ describe("acknowledgeEscalation", () => {
 
   it("returns false when no pending escalation matches", async () => {
     const redis = fakeRedis();
-    await recordEscalation("เปิดกี่โมง", "U123", "msg-1", { redis, now: () => 0 });
+    await recordEscalation("เปิดกี่โมง", "U123", "สมชาย", "msg-1", { redis, now: () => 0 });
 
     const acked = await acknowledgeEscalation("msg-999", { redis });
 
@@ -98,7 +99,7 @@ describe("reAlertOverdueEscalations", () => {
     delete process.env.LINE_ADMIN_GROUP_ID;
     const redis = fakeRedis();
     const pushTextFn = vi.fn();
-    await recordEscalation("q", "U1", "msg-1", { redis, now: () => 0 });
+    await recordEscalation("q", "U1", "ลูกค้า", "msg-1", { redis, now: () => 0 });
 
     await reAlertOverdueEscalations({ redis, pushTextFn, now: () => THIRTY_MIN });
 
@@ -108,21 +109,23 @@ describe("reAlertOverdueEscalations", () => {
   it("does not re-alert escalations younger than 30 minutes", async () => {
     const redis = fakeRedis();
     const pushTextFn = vi.fn();
-    await recordEscalation("q", "U1", "msg-1", { redis, now: () => 0 });
+    await recordEscalation("q", "U1", "ลูกค้า", "msg-1", { redis, now: () => 0 });
 
     await reAlertOverdueEscalations({ redis, pushTextFn, now: () => THIRTY_MIN - 1000 });
 
     expect(pushTextFn).not.toHaveBeenCalled();
   });
 
-  it("re-alerts and updates the tracked message id once 30 minutes have passed", async () => {
+  it("re-alerts with the customer name and question, and updates the tracked message id", async () => {
     const redis = fakeRedis();
     const pushTextFn = vi.fn().mockResolvedValue("msg-2");
-    await recordEscalation("เปิดกี่โมง", "U123", "msg-1", { redis, now: () => 0 });
+    await recordEscalation("เปิดกี่โมง", "U123", "สมชาย", "msg-1", { redis, now: () => 0 });
 
     await reAlertOverdueEscalations({ redis, pushTextFn, now: () => THIRTY_MIN });
 
-    expect(pushTextFn).toHaveBeenCalledWith("group-123", expect.stringContaining("เปิดกี่โมง"));
+    const [, message] = pushTextFn.mock.calls[0];
+    expect(message).toContain("สมชาย");
+    expect(message).toContain("เปิดกี่โมง");
     const ids = await redis.sMembers("escalations:pending");
     const stored = JSON.parse(redis.store.get(`escalation:${ids[0]}`)!);
     expect(stored.messageId).toBe("msg-2");
@@ -132,7 +135,7 @@ describe("reAlertOverdueEscalations", () => {
   it("never throws even when the push fails", async () => {
     const redis = fakeRedis();
     const pushTextFn = vi.fn().mockRejectedValue(new Error("down"));
-    await recordEscalation("q", "U1", "msg-1", { redis, now: () => 0 });
+    await recordEscalation("q", "U1", "ลูกค้า", "msg-1", { redis, now: () => 0 });
 
     await expect(reAlertOverdueEscalations({ redis, pushTextFn, now: () => THIRTY_MIN })).resolves.toBeUndefined();
   });

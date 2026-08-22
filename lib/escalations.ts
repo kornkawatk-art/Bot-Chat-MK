@@ -12,6 +12,7 @@ interface Escalation {
   lastAlertAt: number;
   question: string;
   userId?: string;
+  customerName: string;
 }
 
 function escalationKey(id: string): string {
@@ -31,6 +32,7 @@ interface WithRedis {
 export async function recordEscalation(
   question: string,
   userId: string | undefined,
+  customerName: string,
   messageId: string,
   deps: WithRedis & { now?: () => number } = {},
 ): Promise<void> {
@@ -38,7 +40,15 @@ export async function recordEscalation(
     const redis = deps.redis ?? (await getRedisClient());
     const now = deps.now ?? Date.now;
     const nowMs = now();
-    const escalation: Escalation = { id: randomUUID(), messageId, createdAt: nowMs, lastAlertAt: nowMs, question, userId };
+    const escalation: Escalation = {
+      id: randomUUID(),
+      messageId,
+      createdAt: nowMs,
+      lastAlertAt: nowMs,
+      question,
+      userId,
+      customerName,
+    };
     await redis.set(escalationKey(escalation.id), JSON.stringify(escalation));
     await redis.sAdd(PENDING_SET_KEY, escalation.id);
   } catch (err) {
@@ -101,7 +111,7 @@ export async function reAlertOverdueEscalations(
       const escalation: Escalation = JSON.parse(raw);
       if (nowMs - escalation.lastAlertAt < RE_ALERT_INTERVAL_MS) continue;
 
-      const message = `⏰ ยังไม่มีใครรับเรื่องนี้\n\nคำถาม: "${escalation.question}"\n\nรบกวน reply (quote) ข้อความนี้เพื่อรับเรื่องด้วยนะคะ 🙏`;
+      const message = `⏰ ยังไม่มีใครรับเรื่องนี้ (เกิน 30 นาทีแล้ว)\n\nจาก: ${escalation.customerName}\nคำถาม: "${escalation.question}"\n\nรบกวน reply (quote) ข้อความนี้เพื่อรับเรื่องด้วยนะคะ 🙏`;
       const newMessageId = await pushTextFn(groupId, message);
       escalation.messageId = newMessageId;
       escalation.lastAlertAt = nowMs;

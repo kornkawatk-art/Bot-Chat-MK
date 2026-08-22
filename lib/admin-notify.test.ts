@@ -98,7 +98,7 @@ describe("notifyAdmin", () => {
 
     await notifyAdmin("เปิดกี่โมง", "U123", { pushTextFn, getProfileFn, now, recordEscalationFn });
 
-    expect(recordEscalationFn).toHaveBeenCalledWith("เปิดกี่โมง", "U123", "msg-1");
+    expect(recordEscalationFn).toHaveBeenCalledWith("เปิดกี่โมง", "U123", "สมชาย", "msg-1");
   });
 
   it("does not record an escalation when the push fails", async () => {

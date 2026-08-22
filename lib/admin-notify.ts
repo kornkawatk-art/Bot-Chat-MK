@@ -80,7 +80,7 @@ export async function notifyAdmin(question: string, userId: string | undefined, 
 
   try {
     const messageId = await pushTextFn(groupId, message);
-    await recordEscalationFn(question, userId, messageId);
+    await recordEscalationFn(question, userId, customerName, messageId);
   } catch (err) {
     console.error(
       JSON.stringify({ level: "error", msg: "admin_notify_failed", error: String(err) }),
