@@ -14,11 +14,16 @@ vi.mock("../../../lib/gemini", () => ({
 vi.mock("../../../lib/admin-notify", () => ({
   notifyAdmin: vi.fn(),
 }));
+vi.mock("../../../lib/products", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../lib/products")>();
+  return { ...actual, getProducts: vi.fn() };
+});
 
 import { notifyAdmin } from "../../../lib/admin-notify";
 import { askGemini } from "../../../lib/gemini";
 import { replyText, verifySignature } from "../../../lib/line";
-import { DEFAULT_REPLY, NO_ANSWER_REPLY } from "../../../lib/replies";
+import { getProducts } from "../../../lib/products";
+import { CODE_NEEDED_REPLY, DEFAULT_REPLY, NO_ANSWER_REPLY, PRODUCT_NOT_FOUND_REPLY } from "../../../lib/replies";
 import { getFaq } from "../../../lib/sheet";
 import { POST } from "./route";
 
@@ -27,6 +32,7 @@ const mockedReplyText = vi.mocked(replyText);
 const mockedGetFaq = vi.mocked(getFaq);
 const mockedAskGemini = vi.mocked(askGemini);
 const mockedNotifyAdmin = vi.mocked(notifyAdmin);
+const mockedGetProducts = vi.mocked(getProducts);
 
 function messageEvent(text: string, replyToken = "reply-1") {
   return {
@@ -187,5 +193,53 @@ describe("POST /api/line-webhook", () => {
 
     expect(res.status).toBe(200);
     expect(mockedReplyText).toHaveBeenCalledWith("reply-join", expect.stringContaining("C123456"));
+  });
+
+  it("replies with price and stock for a bare product code, without calling Gemini", async () => {
+    mockedVerifySignature.mockReturnValue(true);
+    mockedGetProducts.mockResolvedValue(
+      new Map([["4323", { code: "4323", name: "ขนมปัง A", price: "25", stock: "40" }]]),
+    );
+
+    await POST(request([messageEvent("4323")]));
+
+    expect(mockedReplyText).toHaveBeenCalledWith("reply-1", "ขนมปัง A (รหัสสินค้า 4323)\nราคา 25 บาทค่ะ\nคงเหลือในสต็อก 40 ชิ้นค่ะ");
+    expect(mockedAskGemini).not.toHaveBeenCalled();
+  });
+
+  it("replies not-found and notifies admin when the product code isn't in the sheet", async () => {
+    mockedVerifySignature.mockReturnValue(true);
+    mockedGetProducts.mockResolvedValue(new Map());
+
+    await POST(request([messageEvent("999999")]));
+
+    expect(mockedReplyText).toHaveBeenCalledWith("reply-1", PRODUCT_NOT_FOUND_REPLY);
+    expect(mockedNotifyAdmin).toHaveBeenCalledWith(expect.stringContaining("999999"), "U123");
+    expect(mockedAskGemini).not.toHaveBeenCalled();
+  });
+
+  it("replies with the default message when the product sheet can't be fetched", async () => {
+    mockedVerifySignature.mockReturnValue(true);
+    mockedGetProducts.mockRejectedValue(new Error("sheet unavailable"));
+
+    await POST(request([messageEvent("4323")]));
+
+    expect(mockedReplyText).toHaveBeenCalledWith("reply-1", DEFAULT_REPLY);
+    expect(mockedNotifyAdmin).not.toHaveBeenCalled();
+  });
+
+  it("replies with CODE_NEEDED_REPLY without notifying admin when Gemini asks for a code", async () => {
+    mockedVerifySignature.mockReturnValue(true);
+    mockedAskGemini.mockResolvedValue({
+      text: CODE_NEEDED_REPLY,
+      finishReason: "STOP",
+      thoughtsTokenCount: 1,
+      candidatesTokenCount: 2,
+    });
+
+    await POST(request([messageEvent("ขนมปัง A ราคาเท่าไหร่")]));
+
+    expect(mockedReplyText).toHaveBeenCalledWith("reply-1", CODE_NEEDED_REPLY);
+    expect(mockedNotifyAdmin).not.toHaveBeenCalled();
   });
 });

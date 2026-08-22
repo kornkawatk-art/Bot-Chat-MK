@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { askGemini, buildPrompt } from "./gemini";
-import { NO_ANSWER_REPLY } from "./replies";
+import { CODE_NEEDED_REPLY, NO_ANSWER_REPLY } from "./replies";
 
 describe("buildPrompt", () => {
   it("embeds the FAQ CSV and the question inside the system prompt", () => {
@@ -36,6 +36,12 @@ describe("buildPrompt", () => {
 
     expect(prompt).toContain("ปรับถ้อยคำ");
     expect(prompt).not.toContain("ตอบให้กระชับที่สุดเท่าที่จะทำได้");
+  });
+
+  it("instructs the model to reply with the exact CODE_NEEDED_REPLY text for a price/stock question without a bare product code", () => {
+    const prompt = buildPrompt("faq-content", "question-content");
+
+    expect(prompt).toContain(CODE_NEEDED_REPLY);
   });
 });
 

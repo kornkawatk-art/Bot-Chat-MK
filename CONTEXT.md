@@ -19,3 +19,15 @@ Pushing a message to the Admin Group when the bot sends a No-Answer Reply (or re
 
 **Admin Group**:
 The LINE group (`LINE_ADMIN_GROUP_ID`) that receives Admin Escalation notifications. The bot announces its own group ID in-chat when first added to a group.
+
+**Product Code**:
+A digits-only identifier (variable length, no leading zeros) for one ERP-tracked product. A message counts as a Product Code lookup only when the *entire* message is digits — a code mixed with other words does not trigger a lookup, to avoid misreading an unrelated number in a sentence as a code.
+
+**Code-Needed Reply**:
+The fixed, verbatim message the bot sends when Gemini recognizes a price/stock question that didn't arrive as a bare Product Code (`CODE_NEEDED_REPLY`). Guides the customer to resend just the code. Unlike No-Answer Reply, this does not trigger Admin Escalation — the customer can self-resolve by retyping.
+
+**Product Not Found Reply**:
+The fixed message sent when a bare Product Code doesn't match any row in the product sheet (`PRODUCT_NOT_FOUND_REPLY`). Unlike Code-Needed Reply, this *does* trigger Admin Escalation — an unrecognized code may mean the product sheet is missing data.
+
+**Product Reply**:
+The price/stock answer for a matched Product Code. Built from the product sheet data directly (name, price, stock) with no Gemini call — deterministic by design, since price/stock accuracy is business-critical and the code lookup is already exact.

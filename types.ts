@@ -11,3 +11,10 @@ export interface GeminiResult {
   thoughtsTokenCount: number;
   candidatesTokenCount: number;
 }
+
+export interface ProductRow {
+  code: string;
+  name: string;
+  price: string;
+  stock: string;
+}

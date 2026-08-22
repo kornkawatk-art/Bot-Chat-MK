@@ -1,6 +1,6 @@
 import type { FaqRow } from "../types";
 
-function parseCsvRows(csv: string): string[][] {
+export function parseCsvRows(csv: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";

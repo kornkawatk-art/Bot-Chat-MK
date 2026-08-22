@@ -4,7 +4,8 @@ import { notifyAdmin } from "../../../lib/admin-notify";
 import { formatFaqCsv } from "../../../lib/csv";
 import { askGemini, buildPrompt } from "../../../lib/gemini";
 import { replyText, verifySignature } from "../../../lib/line";
-import { DEFAULT_REPLY, NO_ANSWER_REPLY } from "../../../lib/replies";
+import { buildProductReply, getProducts, isProductCode } from "../../../lib/products";
+import { DEFAULT_REPLY, NO_ANSWER_REPLY, PRODUCT_NOT_FOUND_REPLY } from "../../../lib/replies";
 import { getFaq } from "../../../lib/sheet";
 
 export const maxDuration = 10;
@@ -73,6 +74,11 @@ async function handleEvent(event: webhook.Event): Promise<void> {
 
   const question = event.message.text;
 
+  if (isProductCode(question)) {
+    await handleProductLookup(replyToken, question.trim(), userId);
+    return;
+  }
+
   let faq;
   try {
     faq = await getFaq();
@@ -118,6 +124,27 @@ async function handleEvent(event: webhook.Event): Promise<void> {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function handleProductLookup(replyToken: string, code: string, userId: string | undefined): Promise<void> {
+  let products;
+  try {
+    products = await getProducts();
+  } catch (err) {
+    log("error", "products_fetch_failed", { userId, code, error: String(err) });
+    await replyText(replyToken, DEFAULT_REPLY);
+    return;
+  }
+
+  const product = products.get(code);
+  if (!product) {
+    log("warn", "product_not_found", { userId, code });
+    await replyText(replyToken, PRODUCT_NOT_FOUND_REPLY);
+    await notifyAdmin(`[ลูกค้าถามรหัสสินค้า ${code} แต่ไม่พบในระบบ]`, userId);
+    return;
+  }
+
+  await replyText(replyToken, buildProductReply(product));
 }
 
 async function handleJoinEvent(event: webhook.Event & { type: "join" }): Promise<void> {
