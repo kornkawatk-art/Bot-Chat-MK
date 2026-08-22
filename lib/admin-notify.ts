@@ -1,3 +1,4 @@
+import { recordEscalation } from "./escalations";
 import { getProfile, pushText } from "./line";
 
 const THAI_MONTHS = [
@@ -48,6 +49,7 @@ export function buildAdminNotification({ customerName, question, timestamp }: Ad
 interface NotifyAdminDeps {
   getProfileFn?: typeof getProfile;
   pushTextFn?: typeof pushText;
+  recordEscalationFn?: typeof recordEscalation;
   now?: () => Date;
 }
 
@@ -61,6 +63,7 @@ export async function notifyAdmin(question: string, userId: string | undefined, 
 
   const getProfileFn = deps.getProfileFn ?? getProfile;
   const pushTextFn = deps.pushTextFn ?? pushText;
+  const recordEscalationFn = deps.recordEscalationFn ?? recordEscalation;
   const now = deps.now ?? (() => new Date());
 
   let customerName = "ลูกค้า";
@@ -76,7 +79,8 @@ export async function notifyAdmin(question: string, userId: string | undefined, 
   const message = buildAdminNotification({ customerName, question, timestamp: now() });
 
   try {
-    await pushTextFn(groupId, message);
+    const messageId = await pushTextFn(groupId, message);
+    await recordEscalationFn(question, userId, messageId);
   } catch (err) {
     console.error(
       JSON.stringify({ level: "error", msg: "admin_notify_failed", error: String(err) }),

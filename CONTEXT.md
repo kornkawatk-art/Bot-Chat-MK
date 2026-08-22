@@ -18,7 +18,7 @@ The fixed message sent when something technical goes wrong (FAQ sheet unreachabl
 Pushing a message to the Admin Group when the bot sends a No-Answer Reply (or receives a non-text message it can't handle), so a human can follow up with the customer. Not triggered by Default Reply / system failures.
 
 **Admin Group**:
-The LINE group (`LINE_ADMIN_GROUP_ID`) that receives Admin Escalation notifications. The bot announces its own group ID in-chat when first added to a group.
+The LINE group (`LINE_ADMIN_GROUP_ID`) that receives Admin Escalation notifications. The bot announces its own group ID in-chat when first added to a group. The bot never gives a conversational reply to messages sent here — it's an alert channel, not a customer chat — it only watches for an Acknowledge.
 
 **Product Code**:
 A digits-only identifier (variable length, no leading zeros) for one ERP-tracked product. A message counts as a Product Code lookup only when the *entire* message is digits — a code mixed with other words does not trigger a lookup, to avoid misreading an unrelated number in a sentence as a code.
@@ -34,4 +34,13 @@ The price/stock answer for a matched Product Code. Built from the product sheet 
 
 **Session**:
 A customer's recent conversation history (last 6 messages, keyed by LINE userId, stored in Redis with a 30-minute TTL that resets on each message). Only covers the FAQ+Gemini flow — Product Code lookups are stateless and never read or write a Session, since an exact-code lookup needs no prior context.
+
+**Pending Escalation**:
+A tracked, unresolved Admin Escalation, stored in Redis with the LINE message id of its most recent alert. Re-alerted to the Admin Group every 30 minutes until Acknowledged. Timing follows real webhook traffic rather than a precise timer, since Vercel's Hobby plan can only run Cron Jobs once a day.
+
+**Acknowledge**:
+An admin quote-replying (LINE's reply-to-a-specific-message feature) to an alert in the Admin Group — any text works, only the quote target matters. Clears that Pending Escalation so it stops being re-alerted. Deliberately loose (no fixed keyword) so nobody has to remember a command mid-conversation.
+
+**Update Timestamp**:
+The "as of" time for the product price/stock data (`updatedAt`), hand-typed into cell E1 of the price sheet by whoever refreshes it — never derived from when the bot happened to fetch the file. A bot-derived fetch time would look fresh even when the underlying export was forgotten; a human-entered one stays visibly stale if nobody updated it. Shown on every Product Reply so a customer's screenshot can be checked against how current the price actually was.
 

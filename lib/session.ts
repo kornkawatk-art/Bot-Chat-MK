@@ -1,31 +1,11 @@
-import { createClient } from "redis";
 import type { HistoryEntry } from "../types";
+import { getRedisClient, type RedisLike } from "./redis-client";
 
 const HISTORY_LIMIT = 6;
 const SESSION_TTL_SECONDS = 30 * 60;
 
-interface RedisLike {
-  get(key: string): Promise<string | null>;
-  set(key: string, value: string, options?: { EX: number }): Promise<unknown>;
-}
-
-let defaultClient: RedisLike | null = null;
-let connecting: Promise<RedisLike> | null = null;
-
-function getDefaultClient(): Promise<RedisLike> {
-  if (defaultClient) return Promise.resolve(defaultClient);
-  if (!connecting) {
-    const url = process.env.REDIS_URL;
-    if (!url) throw new Error("REDIS_URL not set");
-    connecting = createClient({ url })
-      .connect()
-      .then((client) => {
-        defaultClient = client as unknown as RedisLike;
-        return defaultClient;
-      });
-  }
-  return connecting;
-}
+/** session.ts only ever reads/writes a single key — no need for the full shared Redis surface. */
+type SessionRedis = Pick<RedisLike, "get" | "set">;
 
 function sessionKey(userId: string): string {
   return `session:${userId}`;
@@ -37,9 +17,9 @@ export function formatHistory(entries: HistoryEntry[]): string {
 }
 
 /** Reads the customer's recent conversation history. Never throws — a broken/unconfigured session store just degrades to no memory. */
-export async function getHistory(userId: string, client?: RedisLike): Promise<HistoryEntry[]> {
+export async function getHistory(userId: string, client?: SessionRedis): Promise<HistoryEntry[]> {
   try {
-    const redis = client ?? (await getDefaultClient());
+    const redis = client ?? (await getRedisClient());
     const raw = await redis.get(sessionKey(userId));
     if (!raw) return [];
     return JSON.parse(raw) as HistoryEntry[];
@@ -53,10 +33,10 @@ export async function getHistory(userId: string, client?: RedisLike): Promise<Hi
 export async function appendToHistory(
   userId: string,
   entries: HistoryEntry[],
-  client?: RedisLike,
+  client?: SessionRedis,
 ): Promise<void> {
   try {
-    const redis = client ?? (await getDefaultClient());
+    const redis = client ?? (await getRedisClient());
     const existingRaw = await redis.get(sessionKey(userId));
     const existing: HistoryEntry[] = existingRaw ? JSON.parse(existingRaw) : [];
     const updated = [...existing, ...entries].slice(-HISTORY_LIMIT);

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { webhook } from "@line/bot-sdk";
 import { notifyAdmin } from "../../../lib/admin-notify";
 import { formatFaqCsv } from "../../../lib/csv";
+import { acknowledgeEscalation, reAlertOverdueEscalations } from "../../../lib/escalations";
 import { askGemini, buildPrompt } from "../../../lib/gemini";
 import { replyText, verifySignature } from "../../../lib/line";
 import { buildProductReply, getProducts, isProductCode } from "../../../lib/products";
@@ -44,13 +45,14 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ error: "invalid body" }, { status: 400 });
   }
 
-  await Promise.all(
-    payload.events.map((event) =>
+  await Promise.all([
+    reAlertOverdueEscalations(),
+    ...payload.events.map((event) =>
       handleEvent(event).catch((err) => {
         log("error", "handle_event_failed", { error: String(err) });
       }),
     ),
-  );
+  ]);
 
   return NextResponse.json({}, { status: 200 });
 }
@@ -61,7 +63,14 @@ async function handleEvent(event: webhook.Event): Promise<void> {
     return;
   }
 
-  if (event.type !== "message" || !event.replyToken) return;
+  if (event.type !== "message") return;
+
+  if (event.source?.type === "group" && event.source.groupId === process.env.LINE_ADMIN_GROUP_ID) {
+    await handleAdminGroupMessage(event);
+    return;
+  }
+
+  if (!event.replyToken) return;
 
   const replyToken = event.replyToken;
   const userId = event.source?.type === "user" ? event.source.userId : undefined;
@@ -135,16 +144,16 @@ async function handleEvent(event: webhook.Event): Promise<void> {
 }
 
 async function handleProductLookup(replyToken: string, code: string, userId: string | undefined): Promise<void> {
-  let products;
+  let catalog;
   try {
-    products = await getProducts();
+    catalog = await getProducts();
   } catch (err) {
     log("error", "products_fetch_failed", { userId, code, error: String(err) });
     await replyText(replyToken, DEFAULT_REPLY);
     return;
   }
 
-  const product = products.get(code);
+  const product = catalog.products.get(code);
   if (!product) {
     log("warn", "product_not_found", { userId, code });
     await replyText(replyToken, PRODUCT_NOT_FOUND_REPLY);
@@ -152,7 +161,19 @@ async function handleProductLookup(replyToken: string, code: string, userId: str
     return;
   }
 
-  await replyText(replyToken, buildProductReply(product));
+  await replyText(replyToken, buildProductReply(product, catalog.updatedAt));
+}
+
+/**
+ * The admin group never gets a conversational reply from the bot (it's an alert channel, not a
+ * customer chat) — the only thing the bot does here is watch for a quote-reply to an alert
+ * message, which counts as "an admin picked this up" and cancels future re-alerts for it.
+ */
+async function handleAdminGroupMessage(event: webhook.Event & { type: "message" }): Promise<void> {
+  if (event.message.type !== "text") return;
+  const quotedMessageId = event.message.quotedMessageId;
+  if (!quotedMessageId) return;
+  await acknowledgeEscalation(quotedMessageId);
 }
 
 async function handleJoinEvent(event: webhook.Event & { type: "join" }): Promise<void> {

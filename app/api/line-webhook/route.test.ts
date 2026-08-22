@@ -22,8 +22,13 @@ vi.mock("../../../lib/session", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../lib/session")>();
   return { ...actual, getHistory: vi.fn(), appendToHistory: vi.fn() };
 });
+vi.mock("../../../lib/escalations", () => ({
+  acknowledgeEscalation: vi.fn(),
+  reAlertOverdueEscalations: vi.fn(),
+}));
 
 import { notifyAdmin } from "../../../lib/admin-notify";
+import { acknowledgeEscalation, reAlertOverdueEscalations } from "../../../lib/escalations";
 import { askGemini, buildPrompt } from "../../../lib/gemini";
 import { replyText, verifySignature } from "../../../lib/line";
 import { getProducts } from "../../../lib/products";
@@ -41,6 +46,10 @@ const mockedNotifyAdmin = vi.mocked(notifyAdmin);
 const mockedGetProducts = vi.mocked(getProducts);
 const mockedGetHistory = vi.mocked(getHistory);
 const mockedAppendToHistory = vi.mocked(appendToHistory);
+const mockedAcknowledgeEscalation = vi.mocked(acknowledgeEscalation);
+const mockedReAlertOverdueEscalations = vi.mocked(reAlertOverdueEscalations);
+
+const ADMIN_GROUP_ID = "C-admin-group";
 
 function messageEvent(text: string, replyToken = "reply-1") {
   return {
@@ -52,6 +61,19 @@ function messageEvent(text: string, replyToken = "reply-1") {
     webhookEventId: "wh1",
     deliveryContext: { isRedelivery: false },
     source: { type: "user", userId: "U123" },
+  };
+}
+
+function adminGroupMessageEvent(text: string, quotedMessageId?: string) {
+  return {
+    type: "message",
+    replyToken: "reply-admin",
+    message: { type: "text", id: "msg-admin", text, quoteToken: "qt", quotedMessageId },
+    timestamp: 0,
+    mode: "active",
+    webhookEventId: "wh-admin",
+    deliveryContext: { isRedelivery: false },
+    source: { type: "group", groupId: ADMIN_GROUP_ID, userId: "U-admin" },
   };
 }
 
@@ -68,6 +90,7 @@ describe("POST /api/line-webhook", () => {
     vi.clearAllMocks();
     mockedGetFaq.mockResolvedValue([{ question: "Q1", answer: "A1" }]);
     mockedGetHistory.mockResolvedValue([]);
+    delete process.env.LINE_ADMIN_GROUP_ID;
   });
 
   it("returns 401 and does nothing else when the signature is invalid", async () => {
@@ -204,21 +227,25 @@ describe("POST /api/line-webhook", () => {
     expect(mockedReplyText).toHaveBeenCalledWith("reply-join", expect.stringContaining("C123456"));
   });
 
-  it("replies with price and stock for a bare product code, without calling Gemini", async () => {
+  it("replies with price, stock, and the update timestamp for a bare product code, without calling Gemini", async () => {
     mockedVerifySignature.mockReturnValue(true);
-    mockedGetProducts.mockResolvedValue(
-      new Map([["4323", { code: "4323", name: "ขนมปัง A", price: "25", stock: "40" }]]),
-    );
+    mockedGetProducts.mockResolvedValue({
+      products: new Map([["4323", { code: "4323", name: "ขนมปัง A", price: "25", stock: "40" }]]),
+      updatedAt: "22 ส.ค. 2569 08:15 น.",
+    });
 
     await POST(request([messageEvent("4323")]));
 
-    expect(mockedReplyText).toHaveBeenCalledWith("reply-1", "ขนมปัง A (รหัสสินค้า 4323)\nราคา 25 บาทค่ะ\nคงเหลือในสต็อก 40 ชิ้นค่ะ");
+    expect(mockedReplyText).toHaveBeenCalledWith(
+      "reply-1",
+      "ขนมปัง A (รหัสสินค้า 4323)\nราคา 25 บาทค่ะ\nคงเหลือในสต็อก 40 ชิ้นค่ะ\n(ข้อมูล ณ 22 ส.ค. 2569 08:15 น.)",
+    );
     expect(mockedAskGemini).not.toHaveBeenCalled();
   });
 
   it("replies not-found and notifies admin when the product code isn't in the sheet", async () => {
     mockedVerifySignature.mockReturnValue(true);
-    mockedGetProducts.mockResolvedValue(new Map());
+    mockedGetProducts.mockResolvedValue({ products: new Map(), updatedAt: undefined });
 
     await POST(request([messageEvent("999999")]));
 
@@ -305,13 +332,55 @@ describe("POST /api/line-webhook", () => {
 
   it("does not touch history for a bare product code lookup", async () => {
     mockedVerifySignature.mockReturnValue(true);
-    mockedGetProducts.mockResolvedValue(
-      new Map([["4323", { code: "4323", name: "ขนมปัง A", price: "25", stock: "40" }]]),
-    );
+    mockedGetProducts.mockResolvedValue({
+      products: new Map([["4323", { code: "4323", name: "ขนมปัง A", price: "25", stock: "40" }]]),
+      updatedAt: undefined,
+    });
 
     await POST(request([messageEvent("4323")]));
 
     expect(mockedGetHistory).not.toHaveBeenCalled();
     expect(mockedAppendToHistory).not.toHaveBeenCalled();
+  });
+
+  it("checks for overdue escalations to re-alert on every request", async () => {
+    mockedVerifySignature.mockReturnValue(true);
+
+    await POST(request([]));
+
+    expect(mockedReAlertOverdueEscalations).toHaveBeenCalledTimes(1);
+  });
+
+  describe("messages from the admin alert group", () => {
+    beforeEach(() => {
+      process.env.LINE_ADMIN_GROUP_ID = ADMIN_GROUP_ID;
+    });
+
+    it("never replies, calls Gemini, or does a product lookup for messages in the admin group", async () => {
+      mockedVerifySignature.mockReturnValue(true);
+
+      const res = await POST(request([adminGroupMessageEvent("4323")]));
+
+      expect(res.status).toBe(200);
+      expect(mockedReplyText).not.toHaveBeenCalled();
+      expect(mockedAskGemini).not.toHaveBeenCalled();
+      expect(mockedGetProducts).not.toHaveBeenCalled();
+    });
+
+    it("acknowledges the escalation when an admin quote-replies to an alert message", async () => {
+      mockedVerifySignature.mockReturnValue(true);
+
+      await POST(request([adminGroupMessageEvent("รับแล้วค่ะ", "alert-msg-1")]));
+
+      expect(mockedAcknowledgeEscalation).toHaveBeenCalledWith("alert-msg-1");
+    });
+
+    it("does not try to acknowledge when the message isn't a quote-reply", async () => {
+      mockedVerifySignature.mockReturnValue(true);
+
+      await POST(request([adminGroupMessageEvent("สวัสดีทุกคน")]));
+
+      expect(mockedAcknowledgeEscalation).not.toHaveBeenCalled();
+    });
   });
 });

@@ -42,7 +42,7 @@ describe("replyText", () => {
 
 describe("pushText", () => {
   it("sends a single text message to the given target id", async () => {
-    const client = { pushMessage: vi.fn().mockResolvedValue({}) };
+    const client = { pushMessage: vi.fn().mockResolvedValue({ sentMessages: [{ id: "msg-1" }] }) };
 
     await pushText("group-123", "แจ้งเตือนค่ะ", client);
 
@@ -50,6 +50,14 @@ describe("pushText", () => {
       to: "group-123",
       messages: [{ type: "text", text: "แจ้งเตือนค่ะ" }],
     });
+  });
+
+  it("returns the id of the sent message", async () => {
+    const client = { pushMessage: vi.fn().mockResolvedValue({ sentMessages: [{ id: "msg-1" }] }) };
+
+    const messageId = await pushText("group-123", "แจ้งเตือนค่ะ", client);
+
+    expect(messageId).toBe("msg-1");
   });
 });
 

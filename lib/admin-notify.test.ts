@@ -42,7 +42,7 @@ describe("notifyAdmin", () => {
 
   it("does nothing when LINE_ADMIN_GROUP_ID is not configured", async () => {
     delete process.env.LINE_ADMIN_GROUP_ID;
-    const pushTextFn = vi.fn().mockResolvedValue(undefined);
+    const pushTextFn = vi.fn().mockResolvedValue("msg-1");
     const getProfileFn = vi.fn();
 
     await notifyAdmin("เปิดกี่โมง", "U123", { pushTextFn, getProfileFn, now });
@@ -51,7 +51,7 @@ describe("notifyAdmin", () => {
   });
 
   it("pushes to the configured group using the customer's display name", async () => {
-    const pushTextFn = vi.fn().mockResolvedValue(undefined);
+    const pushTextFn = vi.fn().mockResolvedValue("msg-1");
     const getProfileFn = vi.fn().mockResolvedValue({ userId: "U123", displayName: "สมชาย" });
 
     await notifyAdmin("เปิดกี่โมง", "U123", { pushTextFn, getProfileFn, now });
@@ -64,7 +64,7 @@ describe("notifyAdmin", () => {
   });
 
   it("falls back to a short userId label when the profile lookup fails", async () => {
-    const pushTextFn = vi.fn().mockResolvedValue(undefined);
+    const pushTextFn = vi.fn().mockResolvedValue("msg-1");
     const getProfileFn = vi.fn().mockRejectedValue(new Error("profile unavailable"));
 
     await notifyAdmin("เปิดกี่โมง", "U1234567890123456", { pushTextFn, getProfileFn, now });
@@ -74,7 +74,7 @@ describe("notifyAdmin", () => {
   });
 
   it("uses a generic label when there is no userId to look up", async () => {
-    const pushTextFn = vi.fn().mockResolvedValue(undefined);
+    const pushTextFn = vi.fn().mockResolvedValue("msg-1");
     const getProfileFn = vi.fn();
 
     await notifyAdmin("เปิดกี่โมง", undefined, { pushTextFn, getProfileFn, now });
@@ -89,5 +89,25 @@ describe("notifyAdmin", () => {
     const getProfileFn = vi.fn().mockResolvedValue({ userId: "U123", displayName: "สมชาย" });
 
     await expect(notifyAdmin("เปิดกี่โมง", "U123", { pushTextFn, getProfileFn, now })).resolves.toBeUndefined();
+  });
+
+  it("records the escalation with the pushed message id so it can be re-alerted later", async () => {
+    const pushTextFn = vi.fn().mockResolvedValue("msg-1");
+    const getProfileFn = vi.fn().mockResolvedValue({ userId: "U123", displayName: "สมชาย" });
+    const recordEscalationFn = vi.fn();
+
+    await notifyAdmin("เปิดกี่โมง", "U123", { pushTextFn, getProfileFn, now, recordEscalationFn });
+
+    expect(recordEscalationFn).toHaveBeenCalledWith("เปิดกี่โมง", "U123", "msg-1");
+  });
+
+  it("does not record an escalation when the push fails", async () => {
+    const pushTextFn = vi.fn().mockRejectedValue(new Error("push failed"));
+    const getProfileFn = vi.fn().mockResolvedValue({ userId: "U123", displayName: "สมชาย" });
+    const recordEscalationFn = vi.fn();
+
+    await notifyAdmin("เปิดกี่โมง", "U123", { pushTextFn, getProfileFn, now, recordEscalationFn });
+
+    expect(recordEscalationFn).not.toHaveBeenCalled();
   });
 });

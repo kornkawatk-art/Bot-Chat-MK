@@ -11,7 +11,10 @@ interface ReplyClient {
 }
 
 interface PushClient {
-  pushMessage: (params: { to: string; messages: Array<{ type: "text"; text: string }> }) => Promise<unknown>;
+  pushMessage: (params: {
+    to: string;
+    messages: Array<{ type: "text"; text: string }>;
+  }) => Promise<{ sentMessages: Array<{ id: string }> }>;
 }
 
 interface ProfileClient {
@@ -36,9 +39,10 @@ export async function replyText(
   await client.replyMessage({ replyToken, messages: [{ type: "text", text }] });
 }
 
-/** Pushes a single text message to a user, group, or room id (unprompted, unlike replyText). */
-export async function pushText(to: string, text: string, client: PushClient = getDefaultClient()): Promise<void> {
-  await client.pushMessage({ to, messages: [{ type: "text", text }] });
+/** Pushes a single text message to a user, group, or room id (unprompted, unlike replyText). Returns the sent message's id. */
+export async function pushText(to: string, text: string, client: PushClient = getDefaultClient()): Promise<string> {
+  const result = await client.pushMessage({ to, messages: [{ type: "text", text }] });
+  return result.sentMessages[0].id;
 }
 
 export async function getProfile(
