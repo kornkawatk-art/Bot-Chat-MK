@@ -16,6 +16,21 @@ describe("buildPrompt", () => {
     expect(prompt.indexOf("<faq>")).toBeLessThan(prompt.indexOf("<question>"));
   });
 
+  it("omits the <history> block entirely when there is no history", () => {
+    const prompt = buildPrompt("faq-content", "question-content");
+
+    expect(prompt).not.toContain("<history>");
+  });
+
+  it("embeds non-empty history between <faq> and <question>", () => {
+    const prompt = buildPrompt("faq-content", "question-content", "ลูกค้า: เปิดกี่โมง\nแอดมิน: 06:00-22:00 ค่ะ");
+
+    expect(prompt).toContain("<history>");
+    expect(prompt).toContain("ลูกค้า: เปิดกี่โมง");
+    expect(prompt.indexOf("<faq>")).toBeLessThan(prompt.indexOf("<history>"));
+    expect(prompt.indexOf("<history>")).toBeLessThan(prompt.indexOf("<question>"));
+  });
+
   it("includes the required role, constraints and output_format sections", () => {
     const prompt = buildPrompt("faq-content", "question-content");
 

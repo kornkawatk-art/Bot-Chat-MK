@@ -31,3 +31,7 @@ The fixed message sent when a bare Product Code doesn't match any row in the pro
 
 **Product Reply**:
 The price/stock answer for a matched Product Code. Built from the product sheet data directly (name, price, stock) with no Gemini call — deterministic by design, since price/stock accuracy is business-critical and the code lookup is already exact.
+
+**Session**:
+A customer's recent conversation history (last 6 messages, keyed by LINE userId, stored in Redis with a 30-minute TTL that resets on each message). Only covers the FAQ+Gemini flow — Product Code lookups are stateless and never read or write a Session, since an exact-code lookup needs no prior context.
+

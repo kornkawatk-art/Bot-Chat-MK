@@ -4,8 +4,16 @@ import { CODE_NEEDED_REPLY, NO_ANSWER_REPLY } from "./replies";
 
 const MODEL = "gemini-3.5-flash-lite";
 
-/** Builds the system prompt. <faq> must precede <question> (context before task, and to keep the FAQ near the end of the static prefix for prompt caching). */
-export function buildPrompt(faqCsv: string, question: string): string {
+/**
+ * Builds the system prompt. Order: role, constraints, output_format, faq, history, question.
+ * <faq> must precede <question>, and stay near the end of the static prefix (with only the
+ * per-message <history>/<question> after it) so repeated calls share a stable prefix for
+ * prompt caching. <history> is per-conversation (changes every message) so it comes after
+ * <faq> but before <question>; omitted entirely when there's no history yet.
+ */
+export function buildPrompt(faqCsv: string, question: string, history: string = ""): string {
+  const historyBlock = history ? `\n\n<history>\n${history}\n</history>` : "";
+
   return `<role>
 คุณคือแอดมินที่ดูแลตอบแชท LINE Official Account ของแม็คโคร สาขาระนอง
 </role>
@@ -14,6 +22,7 @@ export function buildPrompt(faqCsv: string, question: string): string {
 - ตอบโดยอ้างอิงข้อเท็จจริงจาก <faq> เท่านั้น ห้ามแต่งเติมราคา เวลาทำการ ที่ตั้ง โปรโมชั่น หรือรายละเอียดใดๆ ที่ไม่มีใน <faq> — แต่สามารถปรับถ้อยคำจากข้อมูลดิบใน <faq> ให้เป็นประโยคพูดคุยที่เป็นธรรมชาติได้เต็มที่ ไม่ต้องคัดลอกคำต่อคำ
 - ถ้าคำถามไม่มีข้อมูลรองรับใน <faq> ให้ตอบด้วยข้อความนี้เท่านั้น: "${NO_ANSWER_REPLY}"
 - ถ้าลูกค้าถามราคาหรือสต็อกของสินค้าชิ้นใดชิ้นหนึ่ง แต่ไม่ได้พิมพ์รหัสสินค้ามาเป็นข้อความเดี่ยวๆ (ราคา/สต็อกสินค้าไม่ได้อยู่ใน <faq> — ต้องเช็คจากรหัสสินค้าเท่านั้น) ให้ตอบด้วยข้อความนี้เท่านั้น: "${CODE_NEEDED_REPLY}"
+- ถ้ามีประวัติการสนทนาก่อนหน้าแนบมาด้วย ให้ใช้ประกอบความเข้าใจคำถามต่อเนื่อง (เช่น "แล้วอันนี้ล่ะ") แต่กฎอื่นทั้งหมดข้างต้นยังใช้เหมือนเดิม
 - โทนเป็นกันเองแต่สุภาพ เหมือนพนักงานจริงคุยกับลูกค้า ใช้คำลงท้าย "ค่ะ" ใช้ emoji ได้อย่างเหมาะสม (ไม่ถี่เกินไป)
 - ความยาว: ตอบแบบเป็นธรรมชาติ กระชับแต่ไม่ห้วน ถ้าจำเป็นต้องอธิบายเพิ่ม (เช่น ขั้นตอน เงื่อนไข) สามารถตอบยาวกว่านั้นได้
 </constraints>
@@ -24,7 +33,7 @@ export function buildPrompt(faqCsv: string, question: string): string {
 
 <faq>
 ${faqCsv}
-</faq>
+</faq>${historyBlock}
 
 <question>
 ${question}

@@ -18,3 +18,8 @@ export interface ProductRow {
   price: string;
   stock: string;
 }
+
+export interface HistoryEntry {
+  role: "user" | "assistant";
+  text: string;
+}

@@ -6,6 +6,7 @@ import { askGemini, buildPrompt } from "../../../lib/gemini";
 import { replyText, verifySignature } from "../../../lib/line";
 import { buildProductReply, getProducts, isProductCode } from "../../../lib/products";
 import { DEFAULT_REPLY, NO_ANSWER_REPLY, PRODUCT_NOT_FOUND_REPLY } from "../../../lib/replies";
+import { appendToHistory, formatHistory, getHistory } from "../../../lib/session";
 import { getFaq } from "../../../lib/sheet";
 
 export const maxDuration = 10;
@@ -88,7 +89,8 @@ async function handleEvent(event: webhook.Event): Promise<void> {
     return;
   }
 
-  const prompt = buildPrompt(formatFaqCsv(faq), question);
+  const history = userId ? await getHistory(userId) : [];
+  const prompt = buildPrompt(formatFaqCsv(faq), question, formatHistory(history));
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
 
@@ -115,6 +117,12 @@ async function handleEvent(event: webhook.Event): Promise<void> {
       candidatesTokenCount: result.candidatesTokenCount,
     });
     await replyText(replyToken, result.text);
+    if (userId) {
+      await appendToHistory(userId, [
+        { role: "user", text: question },
+        { role: "assistant", text: result.text },
+      ]);
+    }
     if (result.text === NO_ANSWER_REPLY) {
       await notifyAdmin(question, userId);
     }

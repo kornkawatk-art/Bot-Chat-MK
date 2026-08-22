@@ -9,7 +9,7 @@ vi.mock("../../../lib/sheet", () => ({
 }));
 vi.mock("../../../lib/gemini", () => ({
   askGemini: vi.fn(),
-  buildPrompt: vi.fn((faqCsv: string, question: string) => `PROMPT(${faqCsv})(${question})`),
+  buildPrompt: vi.fn((faqCsv: string, question: string, history?: string) => `PROMPT(${faqCsv})(${question})(${history ?? ""})`),
 }));
 vi.mock("../../../lib/admin-notify", () => ({
   notifyAdmin: vi.fn(),
@@ -18,12 +18,17 @@ vi.mock("../../../lib/products", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../lib/products")>();
   return { ...actual, getProducts: vi.fn() };
 });
+vi.mock("../../../lib/session", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../lib/session")>();
+  return { ...actual, getHistory: vi.fn(), appendToHistory: vi.fn() };
+});
 
 import { notifyAdmin } from "../../../lib/admin-notify";
-import { askGemini } from "../../../lib/gemini";
+import { askGemini, buildPrompt } from "../../../lib/gemini";
 import { replyText, verifySignature } from "../../../lib/line";
 import { getProducts } from "../../../lib/products";
 import { CODE_NEEDED_REPLY, DEFAULT_REPLY, NO_ANSWER_REPLY, PRODUCT_NOT_FOUND_REPLY } from "../../../lib/replies";
+import { appendToHistory, getHistory } from "../../../lib/session";
 import { getFaq } from "../../../lib/sheet";
 import { POST } from "./route";
 
@@ -31,8 +36,11 @@ const mockedVerifySignature = vi.mocked(verifySignature);
 const mockedReplyText = vi.mocked(replyText);
 const mockedGetFaq = vi.mocked(getFaq);
 const mockedAskGemini = vi.mocked(askGemini);
+const mockedBuildPrompt = vi.mocked(buildPrompt);
 const mockedNotifyAdmin = vi.mocked(notifyAdmin);
 const mockedGetProducts = vi.mocked(getProducts);
+const mockedGetHistory = vi.mocked(getHistory);
+const mockedAppendToHistory = vi.mocked(appendToHistory);
 
 function messageEvent(text: string, replyToken = "reply-1") {
   return {
@@ -59,6 +67,7 @@ describe("POST /api/line-webhook", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedGetFaq.mockResolvedValue([{ question: "Q1", answer: "A1" }]);
+    mockedGetHistory.mockResolvedValue([]);
   });
 
   it("returns 401 and does nothing else when the signature is invalid", async () => {
@@ -241,5 +250,68 @@ describe("POST /api/line-webhook", () => {
 
     expect(mockedReplyText).toHaveBeenCalledWith("reply-1", CODE_NEEDED_REPLY);
     expect(mockedNotifyAdmin).not.toHaveBeenCalled();
+  });
+
+  it("fetches conversation history and passes it into the prompt", async () => {
+    mockedVerifySignature.mockReturnValue(true);
+    mockedGetHistory.mockResolvedValue([{ role: "user", text: "เปิดกี่โมง" }]);
+    mockedAskGemini.mockResolvedValue({
+      text: "เปิด 06:00-22:00 ค่ะ",
+      finishReason: "STOP",
+      thoughtsTokenCount: 1,
+      candidatesTokenCount: 2,
+    });
+
+    await POST(request([messageEvent("แล้ววันอาทิตย์ล่ะ")]));
+
+    expect(mockedGetHistory).toHaveBeenCalledWith("U123");
+    expect(mockedBuildPrompt).toHaveBeenCalledWith(
+      "category,question,answer,updated_at\n,Q1,A1,",
+      "แล้ววันอาทิตย์ล่ะ",
+      "ลูกค้า: เปิดกี่โมง",
+    );
+  });
+
+  it("appends the question and answer to history after a normal FAQ-answered reply", async () => {
+    mockedVerifySignature.mockReturnValue(true);
+    mockedAskGemini.mockResolvedValue({
+      text: "เปิด 06:00-22:00 ค่ะ",
+      finishReason: "STOP",
+      thoughtsTokenCount: 1,
+      candidatesTokenCount: 2,
+    });
+
+    await POST(request([messageEvent("เปิดกี่โมง")]));
+
+    expect(mockedAppendToHistory).toHaveBeenCalledWith("U123", [
+      { role: "user", text: "เปิดกี่โมง" },
+      { role: "assistant", text: "เปิด 06:00-22:00 ค่ะ" },
+    ]);
+  });
+
+  it("does not append to history for MAX_TOKENS or system-error fallbacks", async () => {
+    mockedVerifySignature.mockReturnValue(true);
+    mockedAskGemini.mockResolvedValue({
+      text: "ตัดข้อความ...",
+      finishReason: "MAX_TOKENS",
+      thoughtsTokenCount: 1,
+      candidatesTokenCount: 2,
+    });
+
+    await POST(request([messageEvent("เปิดกี่โมง")]));
+
+    expect(mockedAppendToHistory).not.toHaveBeenCalled();
+  });
+
+  it("does not touch history for a bare product code lookup", async () => {
+    mockedVerifySignature.mockReturnValue(true);
+    mockedGetProducts.mockResolvedValue(
+      new Map([["4323", { code: "4323", name: "ขนมปัง A", price: "25", stock: "40" }]]),
+    );
+
+    await POST(request([messageEvent("4323")]));
+
+    expect(mockedGetHistory).not.toHaveBeenCalled();
+    expect(mockedAppendToHistory).not.toHaveBeenCalled();
   });
 });
