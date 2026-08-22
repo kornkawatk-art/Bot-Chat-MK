@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { startHandoff } from "./handoff";
 import { pushText } from "./line";
 import { getRedisClient, type RedisLike } from "./redis-client";
 
@@ -60,9 +61,13 @@ export async function recordEscalation(
  * Marks the escalation whose alert message matches `quotedMessageId` as handled (an admin
  * replied/quoted it in the group). Returns whether a matching escalation was found. Never throws.
  */
-export async function acknowledgeEscalation(quotedMessageId: string, deps: WithRedis = {}): Promise<boolean> {
+export async function acknowledgeEscalation(
+  quotedMessageId: string,
+  deps: WithRedis & { startHandoffFn?: typeof startHandoff } = {},
+): Promise<boolean> {
   try {
     const redis = deps.redis ?? (await getRedisClient());
+    const startHandoffFn = deps.startHandoffFn ?? startHandoff;
     const ids = await redis.sMembers(PENDING_SET_KEY);
     for (const id of ids) {
       const raw = await redis.get(escalationKey(id));
@@ -74,6 +79,9 @@ export async function acknowledgeEscalation(quotedMessageId: string, deps: WithR
       if (escalation.messageId === quotedMessageId) {
         await redis.sRem(PENDING_SET_KEY, id);
         await redis.del(escalationKey(id));
+        if (escalation.userId) {
+          await startHandoffFn(escalation.userId);
+        }
         return true;
       }
     }

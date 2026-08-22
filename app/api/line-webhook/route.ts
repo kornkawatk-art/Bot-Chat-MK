@@ -4,6 +4,7 @@ import { notifyAdmin } from "../../../lib/admin-notify";
 import { formatFaqCsv } from "../../../lib/csv";
 import { acknowledgeEscalation, reAlertOverdueEscalations } from "../../../lib/escalations";
 import { askGemini, buildPrompt } from "../../../lib/gemini";
+import { isInHandoff } from "../../../lib/handoff";
 import { replyText, verifySignature } from "../../../lib/line";
 import { buildProductReply, getProducts, isProductCode } from "../../../lib/products";
 import { DEFAULT_REPLY, NO_ANSWER_REPLY, PRODUCT_NOT_FOUND_REPLY } from "../../../lib/replies";
@@ -74,6 +75,10 @@ async function handleEvent(event: webhook.Event): Promise<void> {
 
   const replyToken = event.replyToken;
   const userId = event.source?.type === "user" ? event.source.userId : undefined;
+
+  // A human admin is actively handling this customer (they acknowledged an escalation) — stay
+  // fully silent rather than risk answering on top of what the admin is already saying.
+  if (userId && (await isInHandoff(userId))) return;
 
   if (event.message.type !== "text") {
     const label = NON_TEXT_MESSAGE_LABELS[event.message.type] ?? "ข้อความ";

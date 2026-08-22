@@ -26,10 +26,14 @@ vi.mock("../../../lib/escalations", () => ({
   acknowledgeEscalation: vi.fn(),
   reAlertOverdueEscalations: vi.fn(),
 }));
+vi.mock("../../../lib/handoff", () => ({
+  isInHandoff: vi.fn(),
+}));
 
 import { notifyAdmin } from "../../../lib/admin-notify";
 import { acknowledgeEscalation, reAlertOverdueEscalations } from "../../../lib/escalations";
 import { askGemini, buildPrompt } from "../../../lib/gemini";
+import { isInHandoff } from "../../../lib/handoff";
 import { replyText, verifySignature } from "../../../lib/line";
 import { getProducts } from "../../../lib/products";
 import { CODE_NEEDED_REPLY, DEFAULT_REPLY, NO_ANSWER_REPLY, PRODUCT_NOT_FOUND_REPLY } from "../../../lib/replies";
@@ -43,6 +47,7 @@ const mockedGetFaq = vi.mocked(getFaq);
 const mockedAskGemini = vi.mocked(askGemini);
 const mockedBuildPrompt = vi.mocked(buildPrompt);
 const mockedNotifyAdmin = vi.mocked(notifyAdmin);
+const mockedIsInHandoff = vi.mocked(isInHandoff);
 const mockedGetProducts = vi.mocked(getProducts);
 const mockedGetHistory = vi.mocked(getHistory);
 const mockedAppendToHistory = vi.mocked(appendToHistory);
@@ -90,6 +95,7 @@ describe("POST /api/line-webhook", () => {
     vi.clearAllMocks();
     mockedGetFaq.mockResolvedValue([{ question: "Q1", answer: "A1" }]);
     mockedGetHistory.mockResolvedValue([]);
+    mockedIsInHandoff.mockResolvedValue(false);
     delete process.env.LINE_ADMIN_GROUP_ID;
   });
 
@@ -381,6 +387,49 @@ describe("POST /api/line-webhook", () => {
       await POST(request([adminGroupMessageEvent("สวัสดีทุกคน")]));
 
       expect(mockedAcknowledgeEscalation).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("customer in an active human handoff", () => {
+    it("stays completely silent for a normal question", async () => {
+      mockedVerifySignature.mockReturnValue(true);
+      mockedIsInHandoff.mockResolvedValue(true);
+
+      const res = await POST(request([messageEvent("เปิดกี่โมง")]));
+
+      expect(res.status).toBe(200);
+      expect(mockedReplyText).not.toHaveBeenCalled();
+      expect(mockedAskGemini).not.toHaveBeenCalled();
+    });
+
+    it("stays silent for a bare product code lookup too", async () => {
+      mockedVerifySignature.mockReturnValue(true);
+      mockedIsInHandoff.mockResolvedValue(true);
+
+      await POST(request([messageEvent("4323")]));
+
+      expect(mockedReplyText).not.toHaveBeenCalled();
+      expect(mockedGetProducts).not.toHaveBeenCalled();
+    });
+
+    it("stays silent instead of escalating for a non-text message", async () => {
+      mockedVerifySignature.mockReturnValue(true);
+      mockedIsInHandoff.mockResolvedValue(true);
+
+      await POST(
+        request([{ ...messageEvent(""), message: { type: "sticker", id: "1", packageId: "1", stickerId: "1" } }]),
+      );
+
+      expect(mockedReplyText).not.toHaveBeenCalled();
+      expect(mockedNotifyAdmin).not.toHaveBeenCalled();
+    });
+
+    it("checks handoff status using the customer's userId", async () => {
+      mockedVerifySignature.mockReturnValue(true);
+
+      await POST(request([messageEvent("เปิดกี่โมง")]));
+
+      expect(mockedIsInHandoff).toHaveBeenCalledWith("U123");
     });
   });
 });

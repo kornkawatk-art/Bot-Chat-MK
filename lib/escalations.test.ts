@@ -82,6 +82,36 @@ describe("acknowledgeEscalation", () => {
 
     await expect(acknowledgeEscalation("msg-1", { redis })).resolves.toBe(false);
   });
+
+  it("starts a handoff for the customer so the bot goes quiet for them", async () => {
+    const redis = fakeRedis();
+    const startHandoffFn = vi.fn();
+    await recordEscalation("เปิดกี่โมง", "U123", "สมชาย", "msg-1", { redis, now: () => 0 });
+
+    await acknowledgeEscalation("msg-1", { redis, startHandoffFn });
+
+    expect(startHandoffFn).toHaveBeenCalledWith("U123");
+  });
+
+  it("does not start a handoff when the escalation has no userId", async () => {
+    const redis = fakeRedis();
+    const startHandoffFn = vi.fn();
+    await recordEscalation("เปิดกี่โมง", undefined, "ลูกค้า", "msg-1", { redis, now: () => 0 });
+
+    await acknowledgeEscalation("msg-1", { redis, startHandoffFn });
+
+    expect(startHandoffFn).not.toHaveBeenCalled();
+  });
+
+  it("does not start a handoff when nothing matched", async () => {
+    const redis = fakeRedis();
+    const startHandoffFn = vi.fn();
+    await recordEscalation("เปิดกี่โมง", "U123", "สมชาย", "msg-1", { redis, now: () => 0 });
+
+    await acknowledgeEscalation("msg-999", { redis, startHandoffFn });
+
+    expect(startHandoffFn).not.toHaveBeenCalled();
+  });
 });
 
 describe("reAlertOverdueEscalations", () => {

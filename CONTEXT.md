@@ -39,7 +39,10 @@ A customer's recent conversation history (last 6 messages, keyed by LINE userId,
 A tracked, unresolved Admin Escalation, stored in Redis with the LINE message id of its most recent alert. Re-alerted to the Admin Group every 30 minutes until Acknowledged. Timing follows real webhook traffic rather than a precise timer, since Vercel's Hobby plan can only run Cron Jobs once a day.
 
 **Acknowledge**:
-An admin quote-replying (LINE's reply-to-a-specific-message feature) to an alert in the Admin Group — any text works, only the quote target matters. Clears that Pending Escalation so it stops being re-alerted. Deliberately loose (no fixed keyword) so nobody has to remember a command mid-conversation.
+An admin quote-replying (LINE's reply-to-a-specific-message feature) to an alert in the Admin Group — any text works, only the quote target matters. Clears that Pending Escalation so it stops being re-alerted, and starts a Handoff for that customer.
+
+**Handoff**:
+A window (sliding, ~1 hour of inactivity) during which the bot goes completely silent for one specific customer, started the moment an admin Acknowledges that customer's escalation. Covers every reply path (FAQ+Gemini and Product Code lookups alike) — the problem it solves is the bot answering on top of a human who's mid-conversation with the same customer, so partial silence (e.g. still answering Product Code questions) would defeat the point. Checking a customer's Handoff status while it's active extends it, so an ongoing human conversation doesn't get interrupted by the bot waking back up mid-thread.
 
 **Update Timestamp**:
 The "as of" time for the product price/stock data (`updatedAt`), hand-typed into cell E1 of the price sheet by whoever refreshes it — never derived from when the bot happened to fetch the file. A bot-derived fetch time would look fresh even when the underlying export was forgotten; a human-entered one stays visibly stale if nobody updated it. Shown on every Product Reply so a customer's screenshot can be checked against how current the price actually was.
