@@ -74,7 +74,10 @@ async function handleEvent(event: webhook.Event): Promise<void> {
   if (!event.replyToken) return;
 
   const replyToken = event.replyToken;
-  const userId = event.source?.type === "user" ? event.source.userId : undefined;
+  // userId identifies the individual sender on User, Group, AND Room sources alike (LINE includes
+  // it on all three for message events) — narrowing to just "user" here silently dropped it for
+  // anyone messaging from a group/room, breaking their memory, handoff, and escalation naming.
+  const userId = event.source?.userId;
 
   // A human admin is actively handling this customer (they acknowledged an escalation) — stay
   // fully silent rather than risk answering on top of what the admin is already saying.

@@ -69,6 +69,19 @@ function messageEvent(text: string, replyToken = "reply-1") {
   };
 }
 
+function roomMessageEvent(text: string, replyToken = "reply-room") {
+  return {
+    type: "message",
+    replyToken,
+    message: { type: "text", id: "msg-room", text, quoteToken: "qt" },
+    timestamp: 0,
+    mode: "active",
+    webhookEventId: "wh-room",
+    deliveryContext: { isRedelivery: false },
+    source: { type: "room", roomId: "R123", userId: "U999" },
+  };
+}
+
 function adminGroupMessageEvent(text: string, quotedMessageId?: string) {
   return {
     type: "message",
@@ -431,5 +444,22 @@ describe("POST /api/line-webhook", () => {
 
       expect(mockedIsInHandoff).toHaveBeenCalledWith("U123");
     });
+  });
+
+  it("extracts the sender's userId even when the message comes from a room/group source", async () => {
+    mockedVerifySignature.mockReturnValue(true);
+    mockedGetHistory.mockResolvedValue([{ role: "user", text: "เปิดกี่โมง" }]);
+    mockedAskGemini.mockResolvedValue({
+      text: "เปิด 06:00-22:00 ค่ะ",
+      finishReason: "STOP",
+      thoughtsTokenCount: 1,
+      candidatesTokenCount: 2,
+    });
+
+    await POST(request([roomMessageEvent("แล้ววันอาทิตย์ล่ะ")]));
+
+    expect(mockedIsInHandoff).toHaveBeenCalledWith("U999");
+    expect(mockedGetHistory).toHaveBeenCalledWith("U999");
+    expect(mockedAppendToHistory).toHaveBeenCalledWith("U999", expect.anything());
   });
 });
