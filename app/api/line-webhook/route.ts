@@ -18,7 +18,7 @@ import { getFaq } from "../../../lib/sheet";
 
 export const maxDuration = 10;
 
-const GEMINI_TIMEOUT_MS = 8_000;
+const GEMINI_TIMEOUT_MS = 9_000;
 
 const NON_TEXT_MESSAGE_LABELS: Record<string, string> = {
   image: "รูปภาพ",
