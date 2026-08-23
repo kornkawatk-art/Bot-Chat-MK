@@ -60,6 +60,21 @@ describe("buildPrompt", () => {
     expect(prompt).not.toContain("ตอบเป็นภาษาไทยเท่านั้น");
   });
 
+  it("gives a concrete example so a short English greeting isn't answered in Thai", () => {
+    const prompt = buildPrompt("faq-content", "question-content");
+
+    expect(prompt).toContain("Hello");
+    expect(prompt).toContain("ห้ามตอบเป็นภาษาไทย");
+  });
+
+  it("repeats the language instruction after <question> so it stays fresh for the model", () => {
+    const prompt = buildPrompt("faq-content", "question-content");
+    const questionIdx = prompt.indexOf("<question>");
+    const reminderIdx = prompt.indexOf("ภาษาเดียวกับ", questionIdx);
+
+    expect(reminderIdx).toBeGreaterThan(questionIdx);
+  });
+
   it("instructs the model to reply with the exact CODE_NEEDED_REPLY text for a price/stock question without a bare product code", () => {
     const prompt = buildPrompt("faq-content", "question-content");
 
