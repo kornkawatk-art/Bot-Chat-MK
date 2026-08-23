@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { acknowledgeEscalation, reAlertOverdueEscalations, recordEscalation } from "./escalations";
+import { acknowledgeEscalation, markEscalationAsStaff, reAlertOverdueEscalations, recordEscalation } from "./escalations";
 
 function fakeRedis() {
   const store = new Map<string, string>();
@@ -111,6 +111,50 @@ describe("acknowledgeEscalation", () => {
     await acknowledgeEscalation("msg-999", { redis, startHandoffFn });
 
     expect(startHandoffFn).not.toHaveBeenCalled();
+  });
+});
+
+describe("markEscalationAsStaff", () => {
+  it("clears the pending escalation and adds the customer as staff, returning their name", async () => {
+    const redis = fakeRedis();
+    const addStaffMemberFn = vi.fn();
+    await recordEscalation("รูปภาพ", "U123", "สมชาย", "msg-1", { redis, now: () => 0 });
+
+    const result = await markEscalationAsStaff("msg-1", { redis, addStaffMemberFn });
+
+    expect(result).toBe("สมชาย");
+    expect(addStaffMemberFn).toHaveBeenCalledWith("U123", "สมชาย");
+    expect(await redis.sMembers("escalations:pending")).toHaveLength(0);
+  });
+
+  it("returns null when no pending escalation matches", async () => {
+    const redis = fakeRedis();
+    const addStaffMemberFn = vi.fn();
+    await recordEscalation("รูปภาพ", "U123", "สมชาย", "msg-1", { redis, now: () => 0 });
+
+    const result = await markEscalationAsStaff("msg-999", { redis, addStaffMemberFn });
+
+    expect(result).toBeNull();
+    expect(addStaffMemberFn).not.toHaveBeenCalled();
+  });
+
+  it("clears the escalation but returns null and skips adding staff when there's no userId", async () => {
+    const redis = fakeRedis();
+    const addStaffMemberFn = vi.fn();
+    await recordEscalation("รูปภาพ", undefined, "ลูกค้า", "msg-1", { redis, now: () => 0 });
+
+    const result = await markEscalationAsStaff("msg-1", { redis, addStaffMemberFn });
+
+    expect(result).toBeNull();
+    expect(addStaffMemberFn).not.toHaveBeenCalled();
+    expect(await redis.sMembers("escalations:pending")).toHaveLength(0);
+  });
+
+  it("does not throw when redis fails", async () => {
+    const redis = fakeRedis();
+    redis.sMembers.mockRejectedValue(new Error("down"));
+
+    await expect(markEscalationAsStaff("msg-1", { redis })).resolves.toBeNull();
   });
 });
 

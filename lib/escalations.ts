@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { startHandoff } from "./handoff";
 import { pushText } from "./line";
 import { getRedisClient, type RedisLike } from "./redis-client";
+import { addStaffMember } from "./staff";
 
 const PENDING_SET_KEY = "escalations:pending";
 const RE_ALERT_INTERVAL_MS = 30 * 60 * 1000;
@@ -91,6 +92,43 @@ export async function acknowledgeEscalation(
   } catch (err) {
     log("warn", "escalation_ack_failed", err);
     return false;
+  }
+}
+
+/**
+ * Marks the escalation whose alert message matches `quotedMessageId` as a staff member's message
+ * rather than a real customer's — clears it from pending (so it stops being re-alerted) and adds
+ * the customer to the staff list so future messages from them skip admin escalation entirely.
+ * Returns the customer's name when a staff member was added, or null (no match, or the escalation
+ * had no userId to add). Never throws.
+ */
+export async function markEscalationAsStaff(
+  quotedMessageId: string,
+  deps: WithRedis & { addStaffMemberFn?: typeof addStaffMember } = {},
+): Promise<string | null> {
+  try {
+    const redis = deps.redis ?? (await getRedisClient());
+    const addStaffMemberFn = deps.addStaffMemberFn ?? addStaffMember;
+    const ids = await redis.sMembers(PENDING_SET_KEY);
+    for (const id of ids) {
+      const raw = await redis.get(escalationKey(id));
+      if (!raw) {
+        await redis.sRem(PENDING_SET_KEY, id);
+        continue;
+      }
+      const escalation: Escalation = JSON.parse(raw);
+      if (escalation.messageId === quotedMessageId) {
+        await redis.sRem(PENDING_SET_KEY, id);
+        await redis.del(escalationKey(id));
+        if (!escalation.userId) return null;
+        await addStaffMemberFn(escalation.userId, escalation.customerName);
+        return escalation.customerName;
+      }
+    }
+    return null;
+  } catch (err) {
+    log("warn", "escalation_mark_staff_failed", err);
+    return null;
   }
 }
 

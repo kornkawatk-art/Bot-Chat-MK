@@ -7,7 +7,7 @@ import {
   logUnansweredQuestion,
 } from "../../../lib/analytics";
 import { formatFaqCsv } from "../../../lib/csv";
-import { acknowledgeEscalation, reAlertOverdueEscalations } from "../../../lib/escalations";
+import { acknowledgeEscalation, markEscalationAsStaff, reAlertOverdueEscalations } from "../../../lib/escalations";
 import { askGemini, buildPrompt } from "../../../lib/gemini";
 import { isInHandoff } from "../../../lib/handoff";
 import { replyText, verifySignature } from "../../../lib/line";
@@ -15,6 +15,7 @@ import { buildProductReply, getProducts, isProductCode } from "../../../lib/prod
 import { DEFAULT_REPLY, NO_ANSWER_REPLY, PRODUCT_NOT_FOUND_REPLY } from "../../../lib/replies";
 import { appendToHistory, formatHistory, getHistory } from "../../../lib/session";
 import { getFaq } from "../../../lib/sheet";
+import { formatStaffListSummary, listStaffMembers, removeStaffMemberByIndex } from "../../../lib/staff";
 
 export const maxDuration = 10;
 
@@ -179,25 +180,58 @@ async function handleProductLookup(replyToken: string, code: string, userId: str
 }
 
 const SUMMARY_COMMAND = "สรุปคำถาม";
+const STAFF_LIST_COMMAND = "รายชื่อพนักงาน";
+const STAFF_TAG_COMMAND = "พนักงาน";
+const STAFF_REMOVE_COMMAND = /^ลบพนักงาน\s+(\d+)$/;
 
 /**
  * The admin group never gets a conversational reply from the bot (it's an alert channel, not a
- * customer chat) — the only things it responds to are the exact "สรุปคำถาม" command, and a
- * quote-reply to an alert message (which counts as "an admin picked this up" and cancels future
- * re-alerts for it).
+ * customer chat) — the only things it responds to are the exact commands below, and a quote-reply
+ * to an alert message (which either acknowledges it — starting a Handoff — or, for the exact
+ * "พนักงาน" text, tags that customer as staff so future messages from them skip escalation).
  */
 async function handleAdminGroupMessage(event: webhook.Event & { type: "message" }): Promise<void> {
   if (event.message.type !== "text") return;
+  const text = event.message.text.trim();
 
-  if (event.message.text.trim() === SUMMARY_COMMAND) {
+  if (text === SUMMARY_COMMAND) {
     if (!event.replyToken) return;
     const entries = await getRecentUnansweredQuestions();
     await replyText(event.replyToken, formatUnansweredQuestionsSummary(entries));
     return;
   }
 
+  if (text === STAFF_LIST_COMMAND) {
+    if (!event.replyToken) return;
+    const members = await listStaffMembers();
+    await replyText(event.replyToken, formatStaffListSummary(members));
+    return;
+  }
+
+  const removeMatch = text.match(STAFF_REMOVE_COMMAND);
+  if (removeMatch) {
+    if (!event.replyToken) return;
+    const removed = await removeStaffMemberByIndex(Number(removeMatch[1]));
+    await replyText(
+      event.replyToken,
+      removed ? `ลบ${removed.customerName}ออกจากลิสต์พนักงานแล้วค่ะ` : "ไม่พบรายชื่อพนักงานที่ตรงกับเลขนี้ค่ะ",
+    );
+    return;
+  }
+
   const quotedMessageId = event.message.quotedMessageId;
   if (!quotedMessageId) return;
+
+  if (text === STAFF_TAG_COMMAND) {
+    if (!event.replyToken) return;
+    const customerName = await markEscalationAsStaff(quotedMessageId);
+    await replyText(
+      event.replyToken,
+      customerName ? `บันทึก${customerName}เป็นพนักงานแล้วค่ะ จะไม่แจ้งเตือนกลุ่มนี้อีก` : "ไม่พบข้อความ alert ที่ quote มาค่ะ",
+    );
+    return;
+  }
+
   await acknowledgeEscalation(quotedMessageId);
 }
 

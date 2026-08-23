@@ -1,5 +1,6 @@
 import { recordEscalation } from "./escalations";
 import { getProfile, pushText } from "./line";
+import { isStaffMember } from "./staff";
 
 const THAI_MONTHS = [
   "ม.ค.",
@@ -50,11 +51,14 @@ interface NotifyAdminDeps {
   getProfileFn?: typeof getProfile;
   pushTextFn?: typeof pushText;
   recordEscalationFn?: typeof recordEscalation;
+  isStaffMemberFn?: typeof isStaffMember;
   now?: () => Date;
 }
 
 /**
  * Pushes an escalation message to the admin group when the bot couldn't answer a customer.
+ * Skips entirely for known staff (see lib/staff.ts) — their messages to the OA are personal use,
+ * not customer questions, so they shouldn't page the admin group.
  * Best-effort: never throws, so a broken/unconfigured notification never breaks the customer reply.
  */
 export async function notifyAdmin(question: string, userId: string | undefined, deps: NotifyAdminDeps = {}): Promise<void> {
@@ -64,7 +68,10 @@ export async function notifyAdmin(question: string, userId: string | undefined, 
   const getProfileFn = deps.getProfileFn ?? getProfile;
   const pushTextFn = deps.pushTextFn ?? pushText;
   const recordEscalationFn = deps.recordEscalationFn ?? recordEscalation;
+  const isStaffMemberFn = deps.isStaffMemberFn ?? isStaffMember;
   const now = deps.now ?? (() => new Date());
+
+  if (userId && (await isStaffMemberFn(userId))) return;
 
   let customerName = "ลูกค้า";
   if (userId) {

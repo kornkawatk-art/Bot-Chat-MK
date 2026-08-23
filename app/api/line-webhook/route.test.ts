@@ -24,6 +24,7 @@ vi.mock("../../../lib/session", async (importOriginal) => {
 });
 vi.mock("../../../lib/escalations", () => ({
   acknowledgeEscalation: vi.fn(),
+  markEscalationAsStaff: vi.fn(),
   reAlertOverdueEscalations: vi.fn(),
 }));
 vi.mock("../../../lib/handoff", () => ({
@@ -34,6 +35,11 @@ vi.mock("../../../lib/analytics", () => ({
   getRecentUnansweredQuestions: vi.fn(),
   formatUnansweredQuestionsSummary: vi.fn(() => "SUMMARY"),
 }));
+vi.mock("../../../lib/staff", () => ({
+  listStaffMembers: vi.fn(),
+  formatStaffListSummary: vi.fn(() => "STAFF_SUMMARY"),
+  removeStaffMemberByIndex: vi.fn(),
+}));
 
 import { notifyAdmin } from "../../../lib/admin-notify";
 import {
@@ -41,7 +47,7 @@ import {
   getRecentUnansweredQuestions,
   logUnansweredQuestion,
 } from "../../../lib/analytics";
-import { acknowledgeEscalation, reAlertOverdueEscalations } from "../../../lib/escalations";
+import { acknowledgeEscalation, markEscalationAsStaff, reAlertOverdueEscalations } from "../../../lib/escalations";
 import { askGemini, buildPrompt } from "../../../lib/gemini";
 import { isInHandoff } from "../../../lib/handoff";
 import { replyText, verifySignature } from "../../../lib/line";
@@ -49,6 +55,7 @@ import { getProducts } from "../../../lib/products";
 import { CODE_NEEDED_REPLY, DEFAULT_REPLY, NO_ANSWER_REPLY, PRODUCT_NOT_FOUND_REPLY } from "../../../lib/replies";
 import { appendToHistory, getHistory } from "../../../lib/session";
 import { getFaq } from "../../../lib/sheet";
+import { formatStaffListSummary, listStaffMembers, removeStaffMemberByIndex } from "../../../lib/staff";
 import { POST } from "./route";
 
 const mockedVerifySignature = vi.mocked(verifySignature);
@@ -62,10 +69,14 @@ const mockedGetProducts = vi.mocked(getProducts);
 const mockedGetHistory = vi.mocked(getHistory);
 const mockedAppendToHistory = vi.mocked(appendToHistory);
 const mockedAcknowledgeEscalation = vi.mocked(acknowledgeEscalation);
+const mockedMarkEscalationAsStaff = vi.mocked(markEscalationAsStaff);
 const mockedReAlertOverdueEscalations = vi.mocked(reAlertOverdueEscalations);
 const mockedLogUnansweredQuestion = vi.mocked(logUnansweredQuestion);
 const mockedGetRecentUnansweredQuestions = vi.mocked(getRecentUnansweredQuestions);
 const mockedFormatUnansweredQuestionsSummary = vi.mocked(formatUnansweredQuestionsSummary);
+const mockedListStaffMembers = vi.mocked(listStaffMembers);
+const mockedFormatStaffListSummary = vi.mocked(formatStaffListSummary);
+const mockedRemoveStaffMemberByIndex = vi.mocked(removeStaffMemberByIndex);
 
 const ADMIN_GROUP_ID = "C-admin-group";
 
@@ -463,6 +474,66 @@ describe("POST /api/line-webhook", () => {
 
       expect(mockedGetRecentUnansweredQuestions).not.toHaveBeenCalled();
       expect(mockedReplyText).not.toHaveBeenCalled();
+    });
+
+    it('marks the escalation as staff and confirms by name when quote-replying "พนักงาน"', async () => {
+      mockedVerifySignature.mockReturnValue(true);
+      mockedMarkEscalationAsStaff.mockResolvedValue("สมชาย");
+
+      await POST(request([adminGroupMessageEvent("พนักงาน", "alert-msg-1")]));
+
+      expect(mockedMarkEscalationAsStaff).toHaveBeenCalledWith("alert-msg-1");
+      expect(mockedAcknowledgeEscalation).not.toHaveBeenCalled();
+      expect(mockedReplyText).toHaveBeenCalledWith("reply-admin", expect.stringContaining("สมชาย"));
+    });
+
+    it('replies that nothing matched when "พนักงาน" doesn\'t quote a real pending escalation', async () => {
+      mockedVerifySignature.mockReturnValue(true);
+      mockedMarkEscalationAsStaff.mockResolvedValue(null);
+
+      await POST(request([adminGroupMessageEvent("พนักงาน", "alert-msg-1")]));
+
+      expect(mockedReplyText).toHaveBeenCalledWith("reply-admin", expect.any(String));
+    });
+
+    it('does nothing for "พนักงาน" when it is not a quote-reply', async () => {
+      mockedVerifySignature.mockReturnValue(true);
+
+      await POST(request([adminGroupMessageEvent("พนักงาน")]));
+
+      expect(mockedMarkEscalationAsStaff).not.toHaveBeenCalled();
+      expect(mockedAcknowledgeEscalation).not.toHaveBeenCalled();
+    });
+
+    it('replies with the staff list summary for the exact "รายชื่อพนักงาน" command', async () => {
+      mockedVerifySignature.mockReturnValue(true);
+      const members = [{ userId: "U1", customerName: "สมชาย", addedAt: 0 }];
+      mockedListStaffMembers.mockResolvedValue(members);
+
+      await POST(request([adminGroupMessageEvent("รายชื่อพนักงาน")]));
+
+      expect(mockedListStaffMembers).toHaveBeenCalled();
+      expect(mockedFormatStaffListSummary).toHaveBeenCalledWith(members);
+      expect(mockedReplyText).toHaveBeenCalledWith("reply-admin", "STAFF_SUMMARY");
+    });
+
+    it('removes the staff member at the given index for "ลบพนักงาน <n>"', async () => {
+      mockedVerifySignature.mockReturnValue(true);
+      mockedRemoveStaffMemberByIndex.mockResolvedValue({ userId: "U1", customerName: "สมชาย", addedAt: 0 });
+
+      await POST(request([adminGroupMessageEvent("ลบพนักงาน 1")]));
+
+      expect(mockedRemoveStaffMemberByIndex).toHaveBeenCalledWith(1);
+      expect(mockedReplyText).toHaveBeenCalledWith("reply-admin", expect.stringContaining("สมชาย"));
+    });
+
+    it('replies that nothing matched when "ลบพนักงาน <n>" points at an out-of-range index', async () => {
+      mockedVerifySignature.mockReturnValue(true);
+      mockedRemoveStaffMemberByIndex.mockResolvedValue(null);
+
+      await POST(request([adminGroupMessageEvent("ลบพนักงาน 99")]));
+
+      expect(mockedReplyText).toHaveBeenCalledWith("reply-admin", expect.any(String));
     });
   });
 

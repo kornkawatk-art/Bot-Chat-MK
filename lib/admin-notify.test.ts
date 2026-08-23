@@ -91,6 +91,28 @@ describe("notifyAdmin", () => {
     await expect(notifyAdmin("เปิดกี่โมง", "U123", { pushTextFn, getProfileFn, now })).resolves.toBeUndefined();
   });
 
+  it("does nothing when the userId belongs to a known staff member", async () => {
+    const pushTextFn = vi.fn().mockResolvedValue("msg-1");
+    const getProfileFn = vi.fn();
+    const isStaffMemberFn = vi.fn().mockResolvedValue(true);
+
+    await notifyAdmin("รูปภาพ", "U123", { pushTextFn, getProfileFn, now, isStaffMemberFn });
+
+    expect(isStaffMemberFn).toHaveBeenCalledWith("U123");
+    expect(pushTextFn).not.toHaveBeenCalled();
+  });
+
+  it("still notifies when there's no userId to check against the staff list", async () => {
+    const pushTextFn = vi.fn().mockResolvedValue("msg-1");
+    const getProfileFn = vi.fn();
+    const isStaffMemberFn = vi.fn().mockResolvedValue(true);
+
+    await notifyAdmin("รูปภาพ", undefined, { pushTextFn, getProfileFn, now, isStaffMemberFn });
+
+    expect(isStaffMemberFn).not.toHaveBeenCalled();
+    expect(pushTextFn).toHaveBeenCalled();
+  });
+
   it("records the escalation with the pushed message id so it can be re-alerted later", async () => {
     const pushTextFn = vi.fn().mockResolvedValue("msg-1");
     const getProfileFn = vi.fn().mockResolvedValue({ userId: "U123", displayName: "สมชาย" });
