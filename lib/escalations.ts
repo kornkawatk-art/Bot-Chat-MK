@@ -25,8 +25,10 @@ function log(level: "warn" | "error", msg: string, error: unknown) {
   write(JSON.stringify({ level, msg, error: String(error) }));
 }
 
+type EscalationRedis = Pick<RedisLike, "get" | "set" | "del" | "sAdd" | "sMembers" | "sRem">;
+
 interface WithRedis {
-  redis?: RedisLike;
+  redis?: EscalationRedis;
 }
 
 /** Tracks a new escalation so it can be re-alerted if nobody acknowledges it. Never throws. */

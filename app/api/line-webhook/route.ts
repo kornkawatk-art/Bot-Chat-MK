@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import type { webhook } from "@line/bot-sdk";
 import { notifyAdmin } from "../../../lib/admin-notify";
+import {
+  formatUnansweredQuestionsSummary,
+  getRecentUnansweredQuestions,
+  logUnansweredQuestion,
+} from "../../../lib/analytics";
 import { formatFaqCsv } from "../../../lib/csv";
 import { acknowledgeEscalation, reAlertOverdueEscalations } from "../../../lib/escalations";
 import { askGemini, buildPrompt } from "../../../lib/gemini";
@@ -142,6 +147,7 @@ async function handleEvent(event: webhook.Event): Promise<void> {
     }
     if (result.text === NO_ANSWER_REPLY) {
       await notifyAdmin(question, userId);
+      await logUnansweredQuestion(question);
     }
   } catch (err) {
     log("error", "gemini_call_failed", { userId, question, error: String(err) });
@@ -172,13 +178,24 @@ async function handleProductLookup(replyToken: string, code: string, userId: str
   await replyText(replyToken, buildProductReply(product, catalog.updatedAt));
 }
 
+const SUMMARY_COMMAND = "สรุปคำถาม";
+
 /**
  * The admin group never gets a conversational reply from the bot (it's an alert channel, not a
- * customer chat) — the only thing the bot does here is watch for a quote-reply to an alert
- * message, which counts as "an admin picked this up" and cancels future re-alerts for it.
+ * customer chat) — the only things it responds to are the exact "สรุปคำถาม" command, and a
+ * quote-reply to an alert message (which counts as "an admin picked this up" and cancels future
+ * re-alerts for it).
  */
 async function handleAdminGroupMessage(event: webhook.Event & { type: "message" }): Promise<void> {
   if (event.message.type !== "text") return;
+
+  if (event.message.text.trim() === SUMMARY_COMMAND) {
+    if (!event.replyToken) return;
+    const entries = await getRecentUnansweredQuestions();
+    await replyText(event.replyToken, formatUnansweredQuestionsSummary(entries));
+    return;
+  }
+
   const quotedMessageId = event.message.quotedMessageId;
   if (!quotedMessageId) return;
   await acknowledgeEscalation(quotedMessageId);

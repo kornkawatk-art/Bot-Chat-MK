@@ -7,6 +7,9 @@ export interface RedisLike {
   sAdd(key: string, member: string): Promise<unknown>;
   sMembers(key: string): Promise<string[]>;
   sRem(key: string, member: string): Promise<unknown>;
+  lPush(key: string, element: string): Promise<unknown>;
+  lRange(key: string, start: number, stop: number): Promise<string[]>;
+  lTrim(key: string, start: number, stop: number): Promise<unknown>;
 }
 
 let defaultClient: RedisLike | null = null;

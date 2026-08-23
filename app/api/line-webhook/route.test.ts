@@ -29,8 +29,18 @@ vi.mock("../../../lib/escalations", () => ({
 vi.mock("../../../lib/handoff", () => ({
   isInHandoff: vi.fn(),
 }));
+vi.mock("../../../lib/analytics", () => ({
+  logUnansweredQuestion: vi.fn(),
+  getRecentUnansweredQuestions: vi.fn(),
+  formatUnansweredQuestionsSummary: vi.fn(() => "SUMMARY"),
+}));
 
 import { notifyAdmin } from "../../../lib/admin-notify";
+import {
+  formatUnansweredQuestionsSummary,
+  getRecentUnansweredQuestions,
+  logUnansweredQuestion,
+} from "../../../lib/analytics";
 import { acknowledgeEscalation, reAlertOverdueEscalations } from "../../../lib/escalations";
 import { askGemini, buildPrompt } from "../../../lib/gemini";
 import { isInHandoff } from "../../../lib/handoff";
@@ -53,6 +63,9 @@ const mockedGetHistory = vi.mocked(getHistory);
 const mockedAppendToHistory = vi.mocked(appendToHistory);
 const mockedAcknowledgeEscalation = vi.mocked(acknowledgeEscalation);
 const mockedReAlertOverdueEscalations = vi.mocked(reAlertOverdueEscalations);
+const mockedLogUnansweredQuestion = vi.mocked(logUnansweredQuestion);
+const mockedGetRecentUnansweredQuestions = vi.mocked(getRecentUnansweredQuestions);
+const mockedFormatUnansweredQuestionsSummary = vi.mocked(formatUnansweredQuestionsSummary);
 
 const ADMIN_GROUP_ID = "C-admin-group";
 
@@ -109,6 +122,7 @@ describe("POST /api/line-webhook", () => {
     mockedGetFaq.mockResolvedValue([{ question: "Q1", answer: "A1" }]);
     mockedGetHistory.mockResolvedValue([]);
     mockedIsInHandoff.mockResolvedValue(false);
+    mockedGetRecentUnansweredQuestions.mockResolvedValue([]);
     delete process.env.LINE_ADMIN_GROUP_ID;
   });
 
@@ -195,6 +209,34 @@ describe("POST /api/line-webhook", () => {
     await POST(request([messageEvent("ราคาสินค้า X เท่าไหร่")]));
 
     expect(mockedNotifyAdmin).toHaveBeenCalledWith("ราคาสินค้า X เท่าไหร่", "U123");
+  });
+
+  it("logs the question for analytics when Gemini gives the exact no-FAQ-match reply", async () => {
+    mockedVerifySignature.mockReturnValue(true);
+    mockedAskGemini.mockResolvedValue({
+      text: NO_ANSWER_REPLY,
+      finishReason: "STOP",
+      thoughtsTokenCount: 1,
+      candidatesTokenCount: 2,
+    });
+
+    await POST(request([messageEvent("ราคาสินค้า X เท่าไหร่")]));
+
+    expect(mockedLogUnansweredQuestion).toHaveBeenCalledWith("ราคาสินค้า X เท่าไหร่");
+  });
+
+  it("does not log a question for analytics on a normal FAQ-backed answer", async () => {
+    mockedVerifySignature.mockReturnValue(true);
+    mockedAskGemini.mockResolvedValue({
+      text: "เปิด 06:00-22:00 ค่ะ",
+      finishReason: "STOP",
+      thoughtsTokenCount: 1,
+      candidatesTokenCount: 2,
+    });
+
+    await POST(request([messageEvent("เปิดกี่โมง")]));
+
+    expect(mockedLogUnansweredQuestion).not.toHaveBeenCalled();
   });
 
   it("does not notify admin for a normal FAQ-backed answer", async () => {
@@ -400,6 +442,27 @@ describe("POST /api/line-webhook", () => {
       await POST(request([adminGroupMessageEvent("สวัสดีทุกคน")]));
 
       expect(mockedAcknowledgeEscalation).not.toHaveBeenCalled();
+    });
+
+    it('replies with the unanswered-questions summary for the exact "สรุปคำถาม" command', async () => {
+      mockedVerifySignature.mockReturnValue(true);
+      const entries = [{ question: "เปิดกี่โมง", timestamp: 1000 }];
+      mockedGetRecentUnansweredQuestions.mockResolvedValue(entries);
+
+      await POST(request([adminGroupMessageEvent("สรุปคำถาม")]));
+
+      expect(mockedGetRecentUnansweredQuestions).toHaveBeenCalled();
+      expect(mockedFormatUnansweredQuestionsSummary).toHaveBeenCalledWith(entries);
+      expect(mockedReplyText).toHaveBeenCalledWith("reply-admin", "SUMMARY");
+    });
+
+    it('does not treat a message merely containing "สรุปคำถาม" as the command', async () => {
+      mockedVerifySignature.mockReturnValue(true);
+
+      await POST(request([adminGroupMessageEvent("ขอสรุปคำถามหน่อยได้ไหม")]));
+
+      expect(mockedGetRecentUnansweredQuestions).not.toHaveBeenCalled();
+      expect(mockedReplyText).not.toHaveBeenCalled();
     });
   });
 

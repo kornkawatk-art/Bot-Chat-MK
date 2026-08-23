@@ -47,3 +47,6 @@ A window (sliding, ~1 hour of inactivity) during which the bot goes completely s
 **Update Timestamp**:
 The "as of" time for the product price/stock data (`updatedAt`), hand-typed into cell E1 of the price sheet by whoever refreshes it — never derived from when the bot happened to fetch the file. A bot-derived fetch time would look fresh even when the underlying export was forgotten; a human-entered one stays visibly stale if nobody updated it. Shown on every Product Reply so a customer's screenshot can be checked against how current the price actually was.
 
+**Unanswered Question Log**:
+The last 200 questions that got a No-Answer Reply, kept in Redis for spotting FAQ content gaps — deliberately scoped to that one case, not Product Not Found (a data-file problem, not a content one) or Default Reply (system noise, not a real question). An admin reads the last 20 via the exact "สรุปคำถาม" command in the Admin Group; no attempt is made to cluster similar phrasings, since that needs a human eye anyway.
+
