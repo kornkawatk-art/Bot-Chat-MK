@@ -5,7 +5,10 @@ LINE Official Account chatbot for Makro Ranong that answers customer questions f
 ## Language
 
 **FAQ Answer**:
-The `answer` text for a matched FAQ row. The bot may rephrase it into a natural, conversational sentence, but every fact in the reply (price, hours, location, promotion, or any other detail) must come from the FAQ — never invented. Fact-fidelity is required; wording-fidelity is not.
+The `answer` text for a matched FAQ row. The bot may rephrase it into a natural, conversational sentence, but every fact in the reply (price, hours, location, promotion, or any other detail) must come from the FAQ — never invented. Fact-fidelity is required; wording-fidelity is not. Rephrased in whichever language the customer asked in (defaulting to Thai when unclear) — see Output Language.
+
+**Output Language**:
+For FAQ Answers only, the bot replies in the same language the customer's question was written in (Gemini detects this itself; defaults to Thai if unclear). The fixed reply constants (No-Answer Reply, Code-Needed Reply, Default Reply, Product Not Found Reply) and the Product Reply template stay Thai-only regardless of the customer's language — changing those would break the exact-string-match escalation detection and hasn't been tackled yet.
 
 **No-Answer Reply**:
 The fixed, verbatim message the bot sends when no FAQ row answers the question (`NO_ANSWER_REPLY`). Always identical text — other code (admin escalation) detects this case by exact string match, so it must never be paraphrased or varied.

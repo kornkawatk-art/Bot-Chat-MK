@@ -28,7 +28,7 @@ export function buildPrompt(faqCsv: string, question: string, history: string = 
 </constraints>
 
 <output_format>
-ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ markdown (ห้าม **, -, #, ตาราง) เพราะข้อความจะถูกส่งเป็น LINE text message ธรรมดา
+ตอบเป็นภาษาเดียวกับที่ลูกค้าใช้พิมพ์ถามมา (ถ้าดูไม่ออกว่าเป็นภาษาอะไร ให้ตอบเป็นภาษาไทย) ห้ามใช้ markdown (ห้าม **, -, #, ตาราง) เพราะข้อความจะถูกส่งเป็น LINE text message ธรรมดา
 </output_format>
 
 <faq>

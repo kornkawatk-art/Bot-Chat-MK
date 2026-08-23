@@ -53,6 +53,13 @@ describe("buildPrompt", () => {
     expect(prompt).not.toContain("ตอบให้กระชับที่สุดเท่าที่จะทำได้");
   });
 
+  it("instructs the model to answer in the customer's own language instead of Thai-only", () => {
+    const prompt = buildPrompt("faq-content", "question-content");
+
+    expect(prompt).toContain("ภาษาเดียวกับ");
+    expect(prompt).not.toContain("ตอบเป็นภาษาไทยเท่านั้น");
+  });
+
   it("instructs the model to reply with the exact CODE_NEEDED_REPLY text for a price/stock question without a bare product code", () => {
     const prompt = buildPrompt("faq-content", "question-content");
 
