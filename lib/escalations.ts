@@ -133,6 +133,26 @@ export async function markEscalationAsStaff(
 }
 
 /**
+ * Deletes every pending escalation (e.g. to clear out stale/stuck entries, like ones left over from
+ * testing) without starting a Handoff or adding anyone to the staff list. Returns how many were
+ * cleared. Never throws.
+ */
+export async function clearAllPendingEscalations(deps: WithRedis = {}): Promise<number> {
+  try {
+    const redis = deps.redis ?? (await getRedisClient());
+    const ids = await redis.sMembers(PENDING_SET_KEY);
+    for (const id of ids) {
+      await redis.del(escalationKey(id));
+      await redis.sRem(PENDING_SET_KEY, id);
+    }
+    return ids.length;
+  } catch (err) {
+    log("warn", "escalation_clear_all_failed", err);
+    return 0;
+  }
+}
+
+/**
  * Re-alerts the admin group for any pending escalation that hasn't been acknowledged in the last
  * 30 minutes. Called opportunistically on incoming webhook traffic (Vercel's Hobby plan can't run
  * Cron more often than daily), so timing follows real traffic rather than a precise timer. Never throws.
@@ -159,9 +179,15 @@ export async function reAlertOverdueEscalations(
       const escalation: Escalation = JSON.parse(raw);
       if (nowMs - escalation.lastAlertAt < RE_ALERT_INTERVAL_MS) continue;
 
-      const message = `⏰ ยังไม่มีใครรับเรื่องนี้ (เกิน 30 นาทีแล้ว)\n\nจาก: ${escalation.customerName}\nคำถาม: "${escalation.question}"\n\nรบกวน reply (quote) ข้อความนี้เพื่อรับเรื่องด้วยนะคะ 🙏`;
-      const newMessageId = await pushTextFn(groupId, message);
-      escalation.messageId = newMessageId;
+      // Isolated per-escalation: one failed push (e.g. LINE rate limit) must not stop the rest of
+      // this batch from being checked, and must still back off lastAlertAt so a failed escalation
+      // doesn't get retried on every single subsequent webhook request until it succeeds.
+      try {
+        const message = `⏰ ยังไม่มีใครรับเรื่องนี้ (เกิน 30 นาทีแล้ว)\n\nจาก: ${escalation.customerName}\nคำถาม: "${escalation.question}"\n\nรบกวน reply (quote) ข้อความนี้เพื่อรับเรื่องด้วยนะคะ 🙏`;
+        escalation.messageId = await pushTextFn(groupId, message);
+      } catch (err) {
+        log("warn", "escalation_realert_push_failed", err);
+      }
       escalation.lastAlertAt = nowMs;
       await redis.set(escalationKey(id), JSON.stringify(escalation));
     }

@@ -39,7 +39,7 @@ The price/stock answer for a matched Product Code. Built from the product sheet 
 A customer's recent conversation history (last 6 messages, keyed by LINE userId, stored in Redis with a 30-minute TTL that resets on each message). Only covers the FAQ+Gemini flow — Product Code lookups are stateless and never read or write a Session, since an exact-code lookup needs no prior context.
 
 **Pending Escalation**:
-A tracked, unresolved Admin Escalation, stored in Redis with the LINE message id of its most recent alert. Re-alerted to the Admin Group every 30 minutes until Acknowledged. Timing follows real webhook traffic rather than a precise timer, since Vercel's Hobby plan can only run Cron Jobs once a day.
+A tracked, unresolved Admin Escalation, stored in Redis with the LINE message id of its most recent alert. Re-alerted to the Admin Group every 30 minutes until Acknowledged. Timing follows real webhook traffic rather than a precise timer, since Vercel's Hobby plan can only run Cron Jobs once a day. Each pending escalation is re-alerted independently — one failed push (e.g. a transient LINE rate limit) doesn't stop the others in the same batch from being checked, and always backs off the 30-minute clock regardless of success, so a failing escalation is retried on the next opportunistic check rather than on every single webhook request until it succeeds.
 
 **Acknowledge**:
 An admin quote-replying (LINE's reply-to-a-specific-message feature) to an alert in the Admin Group — any text works, only the quote target matters. Clears that Pending Escalation so it stops being re-alerted, and starts a Handoff for that customer.
@@ -52,6 +52,9 @@ The "as of" time for the product price/stock data (`updatedAt`), hand-typed into
 
 **Unanswered Question Log**:
 The last 200 questions that got a No-Answer Reply, kept in Redis for spotting FAQ content gaps — deliberately scoped to that one case, not Product Not Found (a data-file problem, not a content one) or Default Reply (system noise, not a real question). An admin reads the last 20 via the exact "สรุปคำถาม" command in the Admin Group; no attempt is made to cluster similar phrasings, since that needs a human eye anyway.
+
+**Clear Escalations**:
+An admin recovery command — typing the exact "ล้าง escalation ค้าง" in the Admin Group deletes every currently-tracked Pending Escalation, regardless of age or whether it's real. Exists because a stuck or stale escalation (e.g. left over from testing, or one whose push keeps failing) previously kept retrying on every single webhook request forever; that specific failure mode is now fixed (see Pending Escalation's back-off behavior), but this command stays as a manual safety valve for whatever else might leave escalations stuck.
 
 **Staff Member**:
 A LINE userId (with the display name captured when tagged) that's known to be an employee using the OA for personal purposes (e.g. passing files to themselves), not a real customer. Tagged by an admin quote-replying the exact word "พนักงาน" to that person's Admin Escalation alert — this both tags them and clears that one escalation from Pending so it stops being re-alerted. From then on, every Admin Escalation trigger (No-Answer Reply, non-text message, Product Not Found) is skipped for their userId — but the bot still replies to them completely normally otherwise, since they might occasionally ask a real question. Managed in the Admin Group via "รายชื่อพนักงาน" (numbered list) and "ลบพนักงาน &lt;เลข&gt;" (remove by that number) — the same list-then-act pattern as the Unanswered Question Log's "สรุปคำถาม" command. Deliberately permanent (no TTL) and separate from Handoff, which is temporary and silences the bot entirely — Staff Member exclusion only ever touches the escalation path.

@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { acknowledgeEscalation, markEscalationAsStaff, reAlertOverdueEscalations, recordEscalation } from "./escalations";
+import {
+  acknowledgeEscalation,
+  clearAllPendingEscalations,
+  markEscalationAsStaff,
+  reAlertOverdueEscalations,
+  recordEscalation,
+} from "./escalations";
 
 function fakeRedis() {
   const store = new Map<string, string>();
@@ -158,6 +164,32 @@ describe("markEscalationAsStaff", () => {
   });
 });
 
+describe("clearAllPendingEscalations", () => {
+  it("deletes every pending escalation and returns how many were cleared", async () => {
+    const redis = fakeRedis();
+    await recordEscalation("q1", "U1", "ลูกค้า1", "msg-1", { redis, now: () => 0 });
+    await recordEscalation("q2", "U2", "ลูกค้า2", "msg-2", { redis, now: () => 0 });
+
+    const count = await clearAllPendingEscalations({ redis });
+
+    expect(count).toBe(2);
+    expect(await redis.sMembers("escalations:pending")).toHaveLength(0);
+  });
+
+  it("returns 0 when there is nothing pending", async () => {
+    const redis = fakeRedis();
+
+    expect(await clearAllPendingEscalations({ redis })).toBe(0);
+  });
+
+  it("does not throw and returns 0 when redis fails", async () => {
+    const redis = fakeRedis();
+    redis.sMembers.mockRejectedValue(new Error("down"));
+
+    await expect(clearAllPendingEscalations({ redis })).resolves.toBe(0);
+  });
+});
+
 describe("reAlertOverdueEscalations", () => {
   const THIRTY_MIN = 30 * 60 * 1000;
 
@@ -212,5 +244,28 @@ describe("reAlertOverdueEscalations", () => {
     await recordEscalation("q", "U1", "ลูกค้า", "msg-1", { redis, now: () => 0 });
 
     await expect(reAlertOverdueEscalations({ redis, pushTextFn, now: () => THIRTY_MIN })).resolves.toBeUndefined();
+  });
+
+  it("still re-alerts the other pending escalations when one of them fails to push", async () => {
+    const redis = fakeRedis();
+    const pushTextFn = vi.fn().mockRejectedValueOnce(new Error("429")).mockResolvedValueOnce("msg-new");
+    await recordEscalation("q1", "U1", "ลูกค้า1", "msg-1", { redis, now: () => 0 });
+    await recordEscalation("q2", "U2", "ลูกค้า2", "msg-2", { redis, now: () => 0 });
+
+    await reAlertOverdueEscalations({ redis, pushTextFn, now: () => THIRTY_MIN });
+
+    expect(pushTextFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("backs off (updates lastAlertAt) even when the push fails, so it isn't retried on the very next check", async () => {
+    const redis = fakeRedis();
+    const pushTextFn = vi.fn().mockRejectedValue(new Error("429"));
+    await recordEscalation("q", "U1", "ลูกค้า", "msg-1", { redis, now: () => 0 });
+
+    await reAlertOverdueEscalations({ redis, pushTextFn, now: () => THIRTY_MIN });
+    pushTextFn.mockClear();
+    await reAlertOverdueEscalations({ redis, pushTextFn, now: () => THIRTY_MIN + 1000 });
+
+    expect(pushTextFn).not.toHaveBeenCalled();
   });
 });

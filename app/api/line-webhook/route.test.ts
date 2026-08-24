@@ -25,6 +25,7 @@ vi.mock("../../../lib/session", async (importOriginal) => {
 vi.mock("../../../lib/escalations", () => ({
   acknowledgeEscalation: vi.fn(),
   markEscalationAsStaff: vi.fn(),
+  clearAllPendingEscalations: vi.fn(),
   reAlertOverdueEscalations: vi.fn(),
 }));
 vi.mock("../../../lib/handoff", () => ({
@@ -47,7 +48,12 @@ import {
   getRecentUnansweredQuestions,
   logUnansweredQuestion,
 } from "../../../lib/analytics";
-import { acknowledgeEscalation, markEscalationAsStaff, reAlertOverdueEscalations } from "../../../lib/escalations";
+import {
+  acknowledgeEscalation,
+  clearAllPendingEscalations,
+  markEscalationAsStaff,
+  reAlertOverdueEscalations,
+} from "../../../lib/escalations";
 import { askGemini, buildPrompt } from "../../../lib/gemini";
 import { isInHandoff } from "../../../lib/handoff";
 import { replyText, verifySignature } from "../../../lib/line";
@@ -70,6 +76,7 @@ const mockedGetHistory = vi.mocked(getHistory);
 const mockedAppendToHistory = vi.mocked(appendToHistory);
 const mockedAcknowledgeEscalation = vi.mocked(acknowledgeEscalation);
 const mockedMarkEscalationAsStaff = vi.mocked(markEscalationAsStaff);
+const mockedClearAllPendingEscalations = vi.mocked(clearAllPendingEscalations);
 const mockedReAlertOverdueEscalations = vi.mocked(reAlertOverdueEscalations);
 const mockedLogUnansweredQuestion = vi.mocked(logUnansweredQuestion);
 const mockedGetRecentUnansweredQuestions = vi.mocked(getRecentUnansweredQuestions);
@@ -534,6 +541,16 @@ describe("POST /api/line-webhook", () => {
       await POST(request([adminGroupMessageEvent("ลบพนักงาน 99")]));
 
       expect(mockedReplyText).toHaveBeenCalledWith("reply-admin", expect.any(String));
+    });
+
+    it('clears all pending escalations and confirms the count for the exact "ล้าง escalation ค้าง" command', async () => {
+      mockedVerifySignature.mockReturnValue(true);
+      mockedClearAllPendingEscalations.mockResolvedValue(3);
+
+      await POST(request([adminGroupMessageEvent("ล้าง escalation ค้าง")]));
+
+      expect(mockedClearAllPendingEscalations).toHaveBeenCalled();
+      expect(mockedReplyText).toHaveBeenCalledWith("reply-admin", expect.stringContaining("3"));
     });
   });
 

@@ -7,7 +7,12 @@ import {
   logUnansweredQuestion,
 } from "../../../lib/analytics";
 import { formatFaqCsv } from "../../../lib/csv";
-import { acknowledgeEscalation, markEscalationAsStaff, reAlertOverdueEscalations } from "../../../lib/escalations";
+import {
+  acknowledgeEscalation,
+  clearAllPendingEscalations,
+  markEscalationAsStaff,
+  reAlertOverdueEscalations,
+} from "../../../lib/escalations";
 import { askGemini, buildPrompt } from "../../../lib/gemini";
 import { isInHandoff } from "../../../lib/handoff";
 import { replyText, verifySignature } from "../../../lib/line";
@@ -183,6 +188,7 @@ const SUMMARY_COMMAND = "สรุปคำถาม";
 const STAFF_LIST_COMMAND = "รายชื่อพนักงาน";
 const STAFF_TAG_COMMAND = "พนักงาน";
 const STAFF_REMOVE_COMMAND = /^ลบพนักงาน\s+(\d+)$/;
+const CLEAR_ESCALATIONS_COMMAND = "ล้าง escalation ค้าง";
 
 /**
  * The admin group never gets a conversational reply from the bot (it's an alert channel, not a
@@ -205,6 +211,13 @@ async function handleAdminGroupMessage(event: webhook.Event & { type: "message" 
     if (!event.replyToken) return;
     const members = await listStaffMembers();
     await replyText(event.replyToken, formatStaffListSummary(members));
+    return;
+  }
+
+  if (text === CLEAR_ESCALATIONS_COMMAND) {
+    if (!event.replyToken) return;
+    const count = await clearAllPendingEscalations();
+    await replyText(event.replyToken, `ล้าง escalation ค้างไปแล้ว ${count} รายการค่ะ`);
     return;
   }
 
