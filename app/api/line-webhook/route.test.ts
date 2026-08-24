@@ -58,7 +58,13 @@ import { askGemini, buildPrompt } from "../../../lib/gemini";
 import { isInHandoff } from "../../../lib/handoff";
 import { replyText, verifySignature } from "../../../lib/line";
 import { getProducts } from "../../../lib/products";
-import { CODE_NEEDED_REPLY, DEFAULT_REPLY, NO_ANSWER_REPLY, PRODUCT_NOT_FOUND_REPLY } from "../../../lib/replies";
+import {
+  CODE_NEEDED_REPLY,
+  DEFAULT_REPLY,
+  NO_ANSWER_REPLY,
+  NO_ANSWER_REPLY_EN,
+  PRODUCT_NOT_FOUND_REPLY,
+} from "../../../lib/replies";
 import { appendToHistory, getHistory } from "../../../lib/session";
 import { getFaq } from "../../../lib/sheet";
 import { formatStaffListSummary, listStaffMembers, removeStaffMemberByIndex } from "../../../lib/staff";
@@ -241,6 +247,21 @@ describe("POST /api/line-webhook", () => {
     await POST(request([messageEvent("ราคาสินค้า X เท่าไหร่")]));
 
     expect(mockedLogUnansweredQuestion).toHaveBeenCalledWith("ราคาสินค้า X เท่าไหร่");
+  });
+
+  it("notifies admin when Gemini gives the exact English no-FAQ-match reply", async () => {
+    mockedVerifySignature.mockReturnValue(true);
+    mockedAskGemini.mockResolvedValue({
+      text: NO_ANSWER_REPLY_EN,
+      finishReason: "STOP",
+      thoughtsTokenCount: 1,
+      candidatesTokenCount: 2,
+    });
+
+    await POST(request([messageEvent("How much is product X?")]));
+
+    expect(mockedNotifyAdmin).toHaveBeenCalledWith("How much is product X?", "U123");
+    expect(mockedLogUnansweredQuestion).toHaveBeenCalledWith("How much is product X?");
   });
 
   it("does not log a question for analytics on a normal FAQ-backed answer", async () => {

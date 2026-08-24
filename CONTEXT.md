@@ -11,7 +11,7 @@ The `answer` text for a matched FAQ row. The bot may rephrase it into a natural,
 For FAQ Answers only, the bot replies in the same language the customer's question was written in (Gemini detects this itself; defaults to Thai if unclear). The fixed reply constants (No-Answer Reply, Code-Needed Reply, Default Reply, Product Not Found Reply) and the Product Reply template stay Thai-only regardless of the customer's language — changing those would break the exact-string-match escalation detection and hasn't been tackled yet.
 
 **No-Answer Reply**:
-The fixed, verbatim message the bot sends when no FAQ row answers the question (`NO_ANSWER_REPLY`). Always identical text — other code (admin escalation) detects this case by exact string match, so it must never be paraphrased or varied.
+The fixed, verbatim message the bot sends when no FAQ row answers the question (`NO_ANSWER_REPLY`, or `NO_ANSWER_REPLY_EN` when the question was in English). Always identical text for a given language — other code (admin escalation, analytics logging) detects this case by exact string match against both language variants, so neither may ever be paraphrased or varied.
 _Avoid_: fallback message (too broad, see Default Reply)
 
 **Default Reply**:
@@ -27,7 +27,7 @@ The LINE group (`LINE_ADMIN_GROUP_ID`) that receives Admin Escalation notificati
 A digits-only identifier (variable length, no leading zeros) for one ERP-tracked product. A message counts as a Product Code lookup only when the *entire* message is digits — a code mixed with other words does not trigger a lookup, to avoid misreading an unrelated number in a sentence as a code.
 
 **Code-Needed Reply**:
-The fixed, verbatim message the bot sends when Gemini recognizes a price/stock question that didn't arrive as a bare Product Code (`CODE_NEEDED_REPLY`). Guides the customer to resend just the code. Unlike No-Answer Reply, this does not trigger Admin Escalation — the customer can self-resolve by retyping.
+The fixed, verbatim message the bot sends when Gemini recognizes a price/stock question that didn't arrive as a bare Product Code (`CODE_NEEDED_REPLY`, or `CODE_NEEDED_REPLY_EN` when the question was in English). Guides the customer to resend just the code. Unlike No-Answer Reply, this does not trigger Admin Escalation — the customer can self-resolve by retyping, so there's no exact-match detection to keep in sync for this one, only the prompt instruction itself.
 
 **Product Not Found Reply**:
 The fixed message sent when a bare Product Code doesn't match any row in the product sheet (`PRODUCT_NOT_FOUND_REPLY`). Unlike Code-Needed Reply, this *does* trigger Admin Escalation — an unrecognized code may mean the product sheet is missing data.

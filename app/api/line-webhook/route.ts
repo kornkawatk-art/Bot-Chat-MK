@@ -17,7 +17,7 @@ import { askGemini, buildPrompt } from "../../../lib/gemini";
 import { isInHandoff } from "../../../lib/handoff";
 import { replyText, verifySignature } from "../../../lib/line";
 import { buildProductReply, getProducts, isProductCode } from "../../../lib/products";
-import { DEFAULT_REPLY, NO_ANSWER_REPLY, PRODUCT_NOT_FOUND_REPLY } from "../../../lib/replies";
+import { DEFAULT_REPLY, NO_ANSWER_REPLY, NO_ANSWER_REPLY_EN, PRODUCT_NOT_FOUND_REPLY } from "../../../lib/replies";
 import { appendToHistory, formatHistory, getHistory } from "../../../lib/session";
 import { getFaq } from "../../../lib/sheet";
 import { formatStaffListSummary, listStaffMembers, removeStaffMemberByIndex } from "../../../lib/staff";
@@ -151,7 +151,7 @@ async function handleEvent(event: webhook.Event): Promise<void> {
         { role: "assistant", text: result.text },
       ]);
     }
-    if (result.text === NO_ANSWER_REPLY) {
+    if (result.text === NO_ANSWER_REPLY || result.text === NO_ANSWER_REPLY_EN) {
       await notifyAdmin(question, userId);
       await logUnansweredQuestion(question);
     }

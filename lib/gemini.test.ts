@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { askGemini, buildPrompt } from "./gemini";
-import { CODE_NEEDED_REPLY, NO_ANSWER_REPLY } from "./replies";
+import { CODE_NEEDED_REPLY, CODE_NEEDED_REPLY_EN, NO_ANSWER_REPLY, NO_ANSWER_REPLY_EN } from "./replies";
 
 describe("buildPrompt", () => {
   it("embeds the FAQ CSV and the question inside the system prompt", () => {
@@ -79,6 +79,18 @@ describe("buildPrompt", () => {
     const prompt = buildPrompt("faq-content", "question-content");
 
     expect(prompt).toContain(CODE_NEEDED_REPLY);
+  });
+
+  it("instructs the model to use the English NO_ANSWER_REPLY_EN when the question is in English", () => {
+    const prompt = buildPrompt("faq-content", "question-content");
+
+    expect(prompt).toContain(NO_ANSWER_REPLY_EN);
+  });
+
+  it("instructs the model to use the English CODE_NEEDED_REPLY_EN when the question is in English", () => {
+    const prompt = buildPrompt("faq-content", "question-content");
+
+    expect(prompt).toContain(CODE_NEEDED_REPLY_EN);
   });
 });
 
