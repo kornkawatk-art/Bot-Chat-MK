@@ -21,6 +21,10 @@ interface ProfileClient {
   getProfile: (userId: string) => Promise<{ userId: string; displayName: string }>;
 }
 
+interface GroupSummaryClient {
+  getGroupSummary: (groupId: string) => Promise<{ groupId: string; groupName: string; pictureUrl?: string }>;
+}
+
 let defaultClient: messagingApi.MessagingApiClient | null = null;
 function getDefaultClient(): messagingApi.MessagingApiClient {
   if (!defaultClient) {
@@ -50,4 +54,11 @@ export async function getProfile(
   client: ProfileClient = getDefaultClient(),
 ): Promise<{ userId: string; displayName: string }> {
   return client.getProfile(userId);
+}
+
+export async function getGroupSummary(
+  groupId: string,
+  client: GroupSummaryClient = getDefaultClient(),
+): Promise<{ groupId: string; groupName: string; pictureUrl?: string }> {
+  return client.getGroupSummary(groupId);
 }

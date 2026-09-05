@@ -13,9 +13,16 @@ import {
   markEscalationAsStaff,
   reAlertOverdueEscalations,
 } from "../../../lib/escalations";
+import {
+  addExcludedGroup,
+  formatExcludedGroupsSummary,
+  isExcludedGroup,
+  listExcludedGroups,
+  removeExcludedGroupByIndex,
+} from "../../../lib/excluded-groups";
 import { askGemini, buildPrompt } from "../../../lib/gemini";
 import { isInHandoff } from "../../../lib/handoff";
-import { replyText, verifySignature } from "../../../lib/line";
+import { getGroupSummary, replyText, verifySignature } from "../../../lib/line";
 import { buildProductReply, getProducts, isProductCode } from "../../../lib/products";
 import { DEFAULT_REPLY, NO_ANSWER_REPLY, NO_ANSWER_REPLY_EN, PRODUCT_NOT_FOUND_REPLY } from "../../../lib/replies";
 import { appendToHistory, formatHistory, getHistory } from "../../../lib/session";
@@ -81,6 +88,11 @@ async function handleEvent(event: webhook.Event): Promise<void> {
     await handleAdminGroupMessage(event);
     return;
   }
+
+  // A customer group where human staff already cover conversations directly (e.g. sales + customers
+  // mixed together) — the bot has nothing useful to add and would only create noise, so stay
+  // completely silent: no replies, no escalations, nothing.
+  if (event.source?.type === "group" && (await isExcludedGroup(event.source.groupId))) return;
 
   if (!event.replyToken) return;
 
@@ -189,6 +201,9 @@ const STAFF_LIST_COMMAND = "รายชื่อพนักงาน";
 const STAFF_TAG_COMMAND = "พนักงาน";
 const STAFF_REMOVE_COMMAND = /^ลบพนักงาน\s+(\d+)$/;
 const CLEAR_ESCALATIONS_COMMAND = "ล้าง escalation ค้าง";
+const EXCLUDED_GROUPS_LIST_COMMAND = "รายชื่อกลุ่มยกเว้น";
+const EXCLUDED_GROUP_ADD_COMMAND = /^เพิ่มกลุ่มยกเว้น\s+(\S+)$/;
+const EXCLUDED_GROUP_REMOVE_COMMAND = /^ลบกลุ่มยกเว้น\s+(\d+)$/;
 
 /**
  * The admin group never gets a conversational reply from the bot (it's an alert channel, not a
@@ -218,6 +233,39 @@ async function handleAdminGroupMessage(event: webhook.Event & { type: "message" 
     if (!event.replyToken) return;
     const count = await clearAllPendingEscalations();
     await replyText(event.replyToken, `ล้าง escalation ค้างไปแล้ว ${count} รายการค่ะ`);
+    return;
+  }
+
+  if (text === EXCLUDED_GROUPS_LIST_COMMAND) {
+    if (!event.replyToken) return;
+    const groups = await listExcludedGroups();
+    await replyText(event.replyToken, formatExcludedGroupsSummary(groups));
+    return;
+  }
+
+  const addGroupMatch = text.match(EXCLUDED_GROUP_ADD_COMMAND);
+  if (addGroupMatch) {
+    if (!event.replyToken) return;
+    const groupId = addGroupMatch[1];
+    let groupName = groupId;
+    try {
+      groupName = (await getGroupSummary(groupId)).groupName;
+    } catch (err) {
+      log("warn", "group_summary_lookup_failed", { groupId, error: String(err) });
+    }
+    await addExcludedGroup(groupId, groupName);
+    await replyText(event.replyToken, `เพิ่ม${groupName}เข้าลิสต์กลุ่มยกเว้นแล้วค่ะ บอทจะเงียบในกลุ่มนี้ตั้งแต่นี้ไป`);
+    return;
+  }
+
+  const removeGroupMatch = text.match(EXCLUDED_GROUP_REMOVE_COMMAND);
+  if (removeGroupMatch) {
+    if (!event.replyToken) return;
+    const removed = await removeExcludedGroupByIndex(Number(removeGroupMatch[1]));
+    await replyText(
+      event.replyToken,
+      removed ? `ลบ${removed.groupName}ออกจากลิสต์กลุ่มยกเว้นแล้วค่ะ` : "ไม่พบรายชื่อกลุ่มที่ตรงกับเลขนี้ค่ะ",
+    );
     return;
   }
 
@@ -255,6 +303,6 @@ async function handleJoinEvent(event: webhook.Event & { type: "join" }): Promise
 
   await replyText(
     event.replyToken,
-    `เพิ่มบอทเข้ากลุ่มนี้เรียบร้อยค่ะ\nGroup ID: ${groupId}\n\nนำ Group ID นี้ไปตั้งเป็นค่า LINE_ADMIN_GROUP_ID เพื่อเปิดใช้การแจ้งเตือนแอดมินอัตโนมัติ`,
+    `เพิ่มบอทเข้ากลุ่มนี้เรียบร้อยค่ะ\nGroup ID: ${groupId}\n\nนำ Group ID นี้ไปตั้งเป็นค่า LINE_ADMIN_GROUP_ID เพื่อเปิดใช้การแจ้งเตือนแอดมินอัตโนมัติ\n\nหรือถ้ากลุ่มนี้เป็นกลุ่มลูกค้า/เซลที่ไม่อยากให้บอทตอบหรือแจ้งเตือนเลย ให้พิมพ์ "เพิ่มกลุ่มยกเว้น ${groupId}" ในกลุ่มแอดมิน`,
   );
 }

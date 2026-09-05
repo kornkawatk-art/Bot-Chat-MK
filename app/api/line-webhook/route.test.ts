@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../../../lib/line", () => ({
   verifySignature: vi.fn(),
   replyText: vi.fn(),
+  getGroupSummary: vi.fn(),
 }));
 vi.mock("../../../lib/sheet", () => ({
   getFaq: vi.fn(),
@@ -41,6 +42,13 @@ vi.mock("../../../lib/staff", () => ({
   formatStaffListSummary: vi.fn(() => "STAFF_SUMMARY"),
   removeStaffMemberByIndex: vi.fn(),
 }));
+vi.mock("../../../lib/excluded-groups", () => ({
+  isExcludedGroup: vi.fn(),
+  addExcludedGroup: vi.fn(),
+  listExcludedGroups: vi.fn(),
+  formatExcludedGroupsSummary: vi.fn(() => "EXCLUDED_GROUPS_SUMMARY"),
+  removeExcludedGroupByIndex: vi.fn(),
+}));
 
 import { notifyAdmin } from "../../../lib/admin-notify";
 import {
@@ -54,9 +62,16 @@ import {
   markEscalationAsStaff,
   reAlertOverdueEscalations,
 } from "../../../lib/escalations";
+import {
+  addExcludedGroup,
+  formatExcludedGroupsSummary,
+  isExcludedGroup,
+  listExcludedGroups,
+  removeExcludedGroupByIndex,
+} from "../../../lib/excluded-groups";
 import { askGemini, buildPrompt } from "../../../lib/gemini";
 import { isInHandoff } from "../../../lib/handoff";
-import { replyText, verifySignature } from "../../../lib/line";
+import { getGroupSummary, replyText, verifySignature } from "../../../lib/line";
 import { getProducts } from "../../../lib/products";
 import {
   CODE_NEEDED_REPLY,
@@ -90,6 +105,12 @@ const mockedFormatUnansweredQuestionsSummary = vi.mocked(formatUnansweredQuestio
 const mockedListStaffMembers = vi.mocked(listStaffMembers);
 const mockedFormatStaffListSummary = vi.mocked(formatStaffListSummary);
 const mockedRemoveStaffMemberByIndex = vi.mocked(removeStaffMemberByIndex);
+const mockedIsExcludedGroup = vi.mocked(isExcludedGroup);
+const mockedAddExcludedGroup = vi.mocked(addExcludedGroup);
+const mockedListExcludedGroups = vi.mocked(listExcludedGroups);
+const mockedFormatExcludedGroupsSummary = vi.mocked(formatExcludedGroupsSummary);
+const mockedRemoveExcludedGroupByIndex = vi.mocked(removeExcludedGroupByIndex);
+const mockedGetGroupSummary = vi.mocked(getGroupSummary);
 
 const ADMIN_GROUP_ID = "C-admin-group";
 
@@ -116,6 +137,19 @@ function roomMessageEvent(text: string, replyToken = "reply-room") {
     webhookEventId: "wh-room",
     deliveryContext: { isRedelivery: false },
     source: { type: "room", roomId: "R123", userId: "U999" },
+  };
+}
+
+function customerGroupMessageEvent(text: string, groupId = "C-customer-group", replyToken = "reply-group") {
+  return {
+    type: "message",
+    replyToken,
+    message: { type: "text", id: "msg-group", text, quoteToken: "qt" },
+    timestamp: 0,
+    mode: "active",
+    webhookEventId: "wh-group",
+    deliveryContext: { isRedelivery: false },
+    source: { type: "group", groupId, userId: "U-group-member" },
   };
 }
 
@@ -146,6 +180,7 @@ describe("POST /api/line-webhook", () => {
     mockedGetFaq.mockResolvedValue([{ question: "Q1", answer: "A1" }]);
     mockedGetHistory.mockResolvedValue([]);
     mockedIsInHandoff.mockResolvedValue(false);
+    mockedIsExcludedGroup.mockResolvedValue(false);
     mockedGetRecentUnansweredQuestions.mockResolvedValue([]);
     delete process.env.LINE_ADMIN_GROUP_ID;
   });
@@ -572,6 +607,86 @@ describe("POST /api/line-webhook", () => {
 
       expect(mockedClearAllPendingEscalations).toHaveBeenCalled();
       expect(mockedReplyText).toHaveBeenCalledWith("reply-admin", expect.stringContaining("3"));
+    });
+
+    it('adds a group as excluded, looking up its name, for "เพิ่มกลุ่มยกเว้น <groupId>"', async () => {
+      mockedVerifySignature.mockReturnValue(true);
+      mockedGetGroupSummary.mockResolvedValue({ groupId: "C999", groupName: "กลุ่มลูกค้า A" });
+
+      await POST(request([adminGroupMessageEvent("เพิ่มกลุ่มยกเว้น C999")]));
+
+      expect(mockedGetGroupSummary).toHaveBeenCalledWith("C999");
+      expect(mockedAddExcludedGroup).toHaveBeenCalledWith("C999", "กลุ่มลูกค้า A");
+      expect(mockedReplyText).toHaveBeenCalledWith("reply-admin", expect.stringContaining("กลุ่มลูกค้า A"));
+    });
+
+    it('replies with the excluded-groups list summary for the exact "รายชื่อกลุ่มยกเว้น" command', async () => {
+      mockedVerifySignature.mockReturnValue(true);
+      const groups = [{ groupId: "C999", groupName: "กลุ่มลูกค้า A", addedAt: 0 }];
+      mockedListExcludedGroups.mockResolvedValue(groups);
+
+      await POST(request([adminGroupMessageEvent("รายชื่อกลุ่มยกเว้น")]));
+
+      expect(mockedListExcludedGroups).toHaveBeenCalled();
+      expect(mockedFormatExcludedGroupsSummary).toHaveBeenCalledWith(groups);
+      expect(mockedReplyText).toHaveBeenCalledWith("reply-admin", "EXCLUDED_GROUPS_SUMMARY");
+    });
+
+    it('removes the excluded group at the given index for "ลบกลุ่มยกเว้น <n>"', async () => {
+      mockedVerifySignature.mockReturnValue(true);
+      mockedRemoveExcludedGroupByIndex.mockResolvedValue({ groupId: "C999", groupName: "กลุ่มลูกค้า A", addedAt: 0 });
+
+      await POST(request([adminGroupMessageEvent("ลบกลุ่มยกเว้น 1")]));
+
+      expect(mockedRemoveExcludedGroupByIndex).toHaveBeenCalledWith(1);
+      expect(mockedReplyText).toHaveBeenCalledWith("reply-admin", expect.stringContaining("กลุ่มลูกค้า A"));
+    });
+
+    it('replies that nothing matched when "ลบกลุ่มยกเว้น <n>" points at an out-of-range index', async () => {
+      mockedVerifySignature.mockReturnValue(true);
+      mockedRemoveExcludedGroupByIndex.mockResolvedValue(null);
+
+      await POST(request([adminGroupMessageEvent("ลบกลุ่มยกเว้น 99")]));
+
+      expect(mockedReplyText).toHaveBeenCalledWith("reply-admin", expect.any(String));
+    });
+  });
+
+  describe("messages from an excluded customer group", () => {
+    it("stays completely silent — no reply, no Gemini call, no admin notify", async () => {
+      mockedVerifySignature.mockReturnValue(true);
+      mockedIsExcludedGroup.mockResolvedValue(true);
+
+      const res = await POST(request([customerGroupMessageEvent("เปิดกี่โมง")]));
+
+      expect(res.status).toBe(200);
+      expect(mockedReplyText).not.toHaveBeenCalled();
+      expect(mockedAskGemini).not.toHaveBeenCalled();
+      expect(mockedNotifyAdmin).not.toHaveBeenCalled();
+    });
+
+    it("checks isExcludedGroup with that group's id", async () => {
+      mockedVerifySignature.mockReturnValue(true);
+      mockedIsExcludedGroup.mockResolvedValue(true);
+
+      await POST(request([customerGroupMessageEvent("เปิดกี่โมง", "C-specific-group")]));
+
+      expect(mockedIsExcludedGroup).toHaveBeenCalledWith("C-specific-group");
+    });
+
+    it("behaves normally (replies, may call Gemini) for a group that is not excluded", async () => {
+      mockedVerifySignature.mockReturnValue(true);
+      mockedIsExcludedGroup.mockResolvedValue(false);
+      mockedAskGemini.mockResolvedValue({
+        text: "answer",
+        finishReason: "STOP",
+        thoughtsTokenCount: 1,
+        candidatesTokenCount: 2,
+      });
+
+      await POST(request([customerGroupMessageEvent("เปิดกี่โมง")]));
+
+      expect(mockedReplyText).toHaveBeenCalledWith("reply-group", "answer");
     });
   });
 

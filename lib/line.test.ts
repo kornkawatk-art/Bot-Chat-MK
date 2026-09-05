@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { getProfile, pushText, replyText, verifySignature } from "./line";
+import { getGroupSummary, getProfile, pushText, replyText, verifySignature } from "./line";
 
 const SECRET = "test-channel-secret";
 
@@ -70,5 +70,17 @@ describe("getProfile", () => {
 
     expect(client.getProfile).toHaveBeenCalledWith("U123");
     expect(result).toEqual(profile);
+  });
+});
+
+describe("getGroupSummary", () => {
+  it("returns the group summary for the given groupId", async () => {
+    const summary = { groupId: "G123", groupName: "กลุ่มลูกค้า A", pictureUrl: undefined };
+    const client = { getGroupSummary: vi.fn().mockResolvedValue(summary) };
+
+    const result = await getGroupSummary("G123", client);
+
+    expect(client.getGroupSummary).toHaveBeenCalledWith("G123");
+    expect(result).toEqual(summary);
   });
 });
